@@ -4,7 +4,7 @@
 #define VERSION "v1.0"
 
 #define ICON ""
-#define UNKNOW ""
+#define UNKNOWN ""
 #define INTERVAL 1000
 
 #define BAT "/sys/class/power_supply/BAT1"

@@ -91,23 +91,23 @@ char *
 date(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	time_t clock = time(NULL);
 	if (clock == (time_t)-1) {
 		warn("time()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	struct tm *tm = localtime(&clock);
 	if (tm == NULL) {
 		warn("localtime()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	if (!strftime(text, len, "%I:%M %p", tm)) {
 		warn("strftime()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	return text;
@@ -117,19 +117,19 @@ char *
 battery(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	int fd = open(BAT"/capacity", O_RDONLY);
 	if (fd == -1) {
 		warn("open(%s)", BAT"/capacity");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	char capacity[4];
 	ssize_t d = read(fd, capacity, 3);
 	if (d == -1) {
 		warn("read(%s)", BAT"/capacity");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	*(capacity+d + ((*(capacity+d-1) == '\n') ? -1 : 0)) = 0;
@@ -146,14 +146,14 @@ battery_status(void)
 	int fd = open(BAT"/status", O_RDONLY);
 	if (fd == -1) {
 		warn("open(%s)", BAT"/status");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	char status[16];
 	ssize_t d = read(fd, status, sizeof(status)/sizeof(*status));
 	if (d == -1) {
 		warn("read(%s)", BAT"/status");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	*(status+d + ((*(status+d-1) == '\n') ? -1 : 0)) = 0;
@@ -173,7 +173,7 @@ char *
 volume(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	int psw = 0;
 	long volume = 0;
@@ -211,7 +211,7 @@ char *
 layout(char *text, size_t len, Display *dpy)
 {
 	if (text == NULL || (len == 0 || dpy == NULL))
-		return UNKNOW;
+		return UNKNOWN;
 
 	XkbStateRec state;
 	XkbGetState(dpy, XkbUseCoreKbd, &state);
@@ -219,7 +219,7 @@ layout(char *text, size_t len, Display *dpy)
 	XkbDescPtr desc = XkbGetKeyboard(dpy, XkbAllComponentsMask, XkbUseCoreKbd);
 	if (desc == NULL) {
 		warn("XkbGetKeyboard()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 	
 	XkbRF_VarDefsRec vd;
@@ -229,7 +229,7 @@ layout(char *text, size_t len, Display *dpy)
 	for (int i = 0; i < state.group; i++) {
 		layout = strtok(NULL, ",");
 		if (layout == NULL) {
-			return UNKNOW;
+			return UNKNOWN;
 		}
 	}
 
@@ -280,7 +280,7 @@ char *
 memory(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	struct meminfo meminfo_new;
 	char unit_used = 0;
@@ -289,7 +289,7 @@ memory(char *text, size_t len)
 	memset(&meminfo_new, 0, sizeof(struct meminfo));
 
 	if (!read_meminfo(&meminfo_new))
-		return UNKNOW;
+		return UNKNOWN;
 
 	long double used = (meminfo_new.memtotal - meminfo_new.memfree - \
 		meminfo_new.buffers - meminfo_new.cached - meminfo_new.sreclaimable);
@@ -319,19 +319,19 @@ char *
 temp(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	int fd = open(TEMP, O_RDONLY);
 	if (fd == -1) {
 		warn("open(%s)", TEMP);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	char value[3];
 	ssize_t d = read(fd, value, 3);
 	if (d == -1) {
 		warn("read(%s)", TEMP);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 	*(value+d-1) = 0;
 
@@ -346,12 +346,12 @@ char *
 cpu_prec(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	FILE *stream = fopen(STAT, "r");
 	if (stream == NULL) {
 		warn("fopen(%s)", STAT);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	char cpu[256];
@@ -361,7 +361,7 @@ cpu_prec(char *text, size_t len)
 
 	if (fgets(cpu, 256, stream) == NULL) {
 		warn("fgets(%s)", STAT);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	*(cpu+strlen(cpu)-1) = 0;
@@ -369,7 +369,7 @@ cpu_prec(char *text, size_t len)
 	char *tok = strdup(cpu);
 	if (tok == NULL) {
 		warn("strdup()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	size_t n = 0;
@@ -381,11 +381,11 @@ cpu_prec(char *text, size_t len)
 
 	if (b.sum == 0) {
 		memcpy(&b, &a, sizeof(struct cpu));
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	if (a.sum-b.sum == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	snprintf(text, len, " %.f%% | ", round((double)((double)100*(double)(a.sum_3-b.sum_3)/(double)(a.sum-b.sum))));
 	memcpy(&b, &a, sizeof(struct cpu));
@@ -400,7 +400,7 @@ char *
 wifi(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	int sockfd;
 	struct iwreq wreq;
@@ -413,14 +413,14 @@ wifi(char *text, size_t len)
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sockfd == -1) {
 		warn("socket()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	wreq.u.essid.pointer = id;
 	if (ioctl(sockfd, SIOCGIWESSID, &wreq) == -1) {
 		warn("ioctl()");
 		close(sockfd);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	if (close(sockfd) == -1)
@@ -428,7 +428,7 @@ wifi(char *text, size_t len)
 
 	if (*id == 0) {
 		free(id);
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	snprintf(text, len, " %s | ", id);
@@ -444,7 +444,7 @@ ethernet(char *text, size_t len)
 	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sockfd == -1) {
 		warn("socket()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	memset(&ifr, 0, sizeof(struct ifreq));
@@ -453,7 +453,7 @@ ethernet(char *text, size_t len)
 		warn("ioctl()");
 		if(close(sockfd) == -1)
 			warn("close()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	if (close(sockfd) == -1)
@@ -464,14 +464,14 @@ ethernet(char *text, size_t len)
 		return text;
 	}
 
-	return UNKNOW;
+	return UNKNOWN;
 }
 
 char *
 openvpn(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
-		return UNKNOW;
+		return UNKNOWN;
 
 	struct if_nameindex *if_ni;
 	struct if_nameindex *i;
@@ -479,7 +479,7 @@ openvpn(char *text, size_t len)
 	if_ni = if_nameindex();
 	if (if_ni == NULL) {
 		warn("if_nameindex()");
-		return UNKNOW;
+		return UNKNOWN;
 	}
 
 	for (i = if_ni; i->if_index != 0 && i->if_name != NULL; i++)
@@ -490,5 +490,5 @@ openvpn(char *text, size_t len)
 		}
 
 	if_freenameindex(if_ni);
-	return UNKNOW;
+	return UNKNOWN;
 }
