@@ -47,7 +47,7 @@ main(int argc, char **argv)
 
 	char date_text[9];
 	char battery_text[11];
-	char sound_text[11];
+	char volume_text[12];
 	char layout_text[12];
 	char memory_text[64];
 	char temp_text[11];
@@ -61,12 +61,12 @@ main(int argc, char **argv)
 	timeout.tv_nsec = (INTERVAL%1000)*1E6;
 
 	while (done) {
-		snprintf(text, 512, "〱 %s%s%s%s%s%s%s%s%s%s  %s",
+		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s  %s",
 				openvpn(openvpn_text, sizeof(ethernet_text)), ethernet(ethernet_text, sizeof(ethernet_text)),
 				wifi(wifi_text, sizeof(wifi_text)),
 				cpu_prec(cpu_prec_text, 12), temp(temp_text, sizeof(temp_text)),
 				memory(memory_text, sizeof(memory_text)), layout(layout_text, sizeof(layout_text), dpy),
-				volume(sound_text, sizeof(sound_text)), battery(battery_text, sizeof(battery_text)),
+				volume(volume_text, sizeof(volume_text)), battery(battery_text, sizeof(battery_text)),
 				date(date_text, sizeof(date_text)), ICON);
 
 		XStoreName(dpy, DefaultRootWindow(dpy), text);
@@ -180,31 +180,47 @@ volume(char *text, size_t len)
 	long min = 0;
 	long max = 0;
 
-	snd_mixer_t *handle;
-	snd_mixer_selem_id_t *sid;
+	snd_mixer_t *handle = NULL;
+	snd_mixer_selem_id_t *sid = NULL;
+	snd_mixer_elem_t *elem = NULL;
 
-	snd_mixer_open(&handle, 0);
-	snd_mixer_attach(handle, CARD);
-	snd_mixer_selem_register(handle, NULL, NULL);
-	snd_mixer_load(handle);
+	if (snd_mixer_open(&handle, 0) < 0)
+		return UNKNOWN;
+	if (snd_mixer_attach(handle, CARD) < 0)
+		goto error;
+	if (snd_mixer_selem_register(handle, NULL, NULL) < 0)
+		goto error;
+	if (snd_mixer_load(handle) < 0)
+		goto error;
 	snd_mixer_selem_id_alloca(&sid);
+	if (sid == NULL)
+		goto error;
 	snd_mixer_selem_id_set_index(sid, SND_INDEX);
 	snd_mixer_selem_id_set_name(sid, SND_CARD);
-	snd_mixer_elem_t* elem = snd_mixer_find_selem(handle, sid);
-	snd_mixer_selem_get_playback_switch(elem, 0, &psw);
+	elem = snd_mixer_find_selem(handle, sid);
+	if (elem == NULL)
+		goto error;
+	if (snd_mixer_selem_get_playback_switch(elem, 0, &psw) < 0)
+		goto error;
 
 	if (!psw) {
 		strncpy(text, "婢 Mute | ", len);
-		return text;
+		goto end;
 	}
 
 	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
 	snd_mixer_selem_get_playback_volume(elem, 0, &volume);
-	snd_mixer_close(handle);
 
 	snprintf(text, len, "墳 %.f%% | ", round((double)100*((double)(volume)/(double)(max))));
 
-	return text;
+	end:
+		snd_mixer_close(handle);
+		return text;
+
+	error:
+		if (handle != NULL)
+			snd_mixer_close(handle);
+		return UNKNOWN;
 }
 
 char *
@@ -483,11 +499,12 @@ openvpn(char *text, size_t len)
 	}
 
 	for (i = if_ni; i->if_index != 0 && i->if_name != NULL; i++)
-		if (!strncmp(i->if_name, TN, strlen(TN))) {
-			strncpy(text, " VPN | ", len);
-			if_freenameindex(if_ni);
-			return text;
-		}
+		for (size_t j = 0; *(vpn_interfaces+j) != NULL; j++)
+			if (!strncmp(i->if_name, *(vpn_interfaces+j), strlen(*(vpn_interfaces+j)))) {
+				strncpy(text, " VPN | ", len);
+				if_freenameindex(if_ni);
+				return text;
+			}
 
 	if_freenameindex(if_ni);
 	return UNKNOWN;

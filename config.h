@@ -16,7 +16,7 @@
 #define STAT "/proc/stat"
 #define IW "wlan0"
 #define ET "enp1s0"
-#define TN "tun0"
+static char *vpn_interfaces[] = {"tun0", "proton0", NULL};
 
 struct meminfo {
     long long int memtotal;
