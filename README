@@ -2,6 +2,4 @@ sucktus
 A status monitor for DWM or any WM that uses WM_NAME
 
 configure by config.h and edit source code
-then build with `make` and just run it by `./suction`
-
-tip: this is not a project for noob or windowsly users :^)
+then build with `make` and just run it by `./sucktus`
