@@ -1,7 +1,10 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define VERSION "v1.0"
+#include <X11/Xlib.h>
+#include <stdio.h>
+
+#define VERSION "v1.3"
 
 #define ICON ""
 #define UNKNOWN ""
@@ -12,11 +15,12 @@
 #define SND_CARD "Master"
 #define SND_INDEX 0
 #define MEMINFO "/proc/meminfo"
-#define TEMP "/sys/class/thermal/thermal_zone2/temp"
+#define TEMP "/sys/class/thermal/thermal_zone1/temp"
 #define STAT "/proc/stat"
-#define IW "wlan0"
-#define ET "enp1s0"
-static char *vpn_interfaces[] = {"tun0", "proton0", NULL};
+
+static char *IW[] = {"wlp2s0", NULL};
+static char *ET[] = {"enp1s0", "enp0s20f0u3", NULL};
+static char *VI[] = {"tun0", "proton0", NULL};
 
 struct meminfo {
     long long int memtotal;

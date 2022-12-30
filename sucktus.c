@@ -29,7 +29,7 @@ main(int argc, char **argv)
 		} else {
 			printf("suckless %s\n\n", VERSION);
 			printf("usage: %s [-vh]\n", *(argv));
-			exit((!(strcmp(*(argv+1), "-h")) ? EXIT_SUCCESS : EXIT_FAILURE));
+			exit((strcmp(*(argv+1), "-h") ? EXIT_FAILURE : EXIT_SUCCESS));
 		}
 	}
 
@@ -45,7 +45,7 @@ main(int argc, char **argv)
 
 	signal(SIGINT, change_done);
 
-	char date_text[9];
+	char date_text[11];
 	char battery_text[11];
 	char volume_text[12];
 	char layout_text[12];
@@ -56,9 +56,7 @@ main(int argc, char **argv)
 	char ethernet_text[19];
 	char openvpn_text[10];
 
-	struct timespec timeout;
-	timeout.tv_sec = INTERVAL/1000;
-	timeout.tv_nsec = (INTERVAL%1000)*1E6;
+	struct timespec timeout = {INTERVAL/1000, (INTERVAL%1000)*1E6};
 
 	while (done) {
 		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s  %s",
@@ -79,13 +77,16 @@ main(int argc, char **argv)
 	return EXIT_SUCCESS;
 }
 
+
 static void
 change_done(int sig_number)
 {
 	(void) sig_number;
 	done = 0;
+
 	return;
 }
+
 
 char *
 date(char *text, size_t len)
@@ -105,13 +106,14 @@ date(char *text, size_t len)
 		return UNKNOWN;
 	}
 
-	if (!strftime(text, len, "%I:%M %p", tm)) {
+	if (!strftime(text, len, "T %I:%M %p", tm)) {
 		warn("strftime()");
 		return UNKNOWN;
 	}
 
 	return text;
 }
+
 
 char *
 battery(char *text, size_t len)
@@ -129,16 +131,22 @@ battery(char *text, size_t len)
 	ssize_t d = read(fd, capacity, 3);
 	if (d == -1) {
 		warn("read(%s)", BAT"/capacity");
+		if (close(fd) == -1)
+			warn("close(%s)", TEMP);
+
 		return UNKNOWN;
 	}
 
 	*(capacity+d + ((*(capacity+d-1) == '\n') ? -1 : 0)) = 0;
-	close(fd);
 
-	snprintf(text, len, "%s %s | ", battery_status(), capacity);
+	if (close(fd) == -1)
+		warn("close(%s)", TEMP);
+
+	snprintf(text, len, "%s %s | ", battery_status(), atoi(capacity)%100 ? capacity : "Full");
 
 	return text;
 }
+
 
 char *
 battery_status(void)
@@ -153,21 +161,26 @@ battery_status(void)
 	ssize_t d = read(fd, status, sizeof(status)/sizeof(*status));
 	if (d == -1) {
 		warn("read(%s)", BAT"/status");
+		if (close(fd) == -1)
+			warn("close(%s)", TEMP);
+
 		return UNKNOWN;
 	}
 
 	*(status+d + ((*(status+d-1) == '\n') ? -1 : 0)) = 0;
-	close(fd);
+	if (close(fd) == -1)
+		warn("close(%s)", TEMP);
 
 	if (!strncmp(status, "Full", 4))
-		return "";
+		return "B";
 	else if (!strncmp(status, "Discharging", 11))
-		return "";
+		return "B-";
 	else if (!strncmp(status, "Charging", 8))
-		return "";
+		return "B+";
 	else
-		return "";
+		return "B!";
 }
+
 
 char *
 volume(char *text, size_t len)
@@ -176,9 +189,7 @@ volume(char *text, size_t len)
 		return UNKNOWN;
 
 	int psw = 0;
-	long volume = 0;
-	long min = 0;
-	long max = 0;
+	long volume = 0, min = 0, max = 0;
 
 	snd_mixer_t *handle = NULL;
 	snd_mixer_selem_id_t *sid = NULL;
@@ -186,32 +197,34 @@ volume(char *text, size_t len)
 
 	if (snd_mixer_open(&handle, 0) < 0)
 		return UNKNOWN;
-	if (snd_mixer_attach(handle, CARD) < 0)
+	else if (snd_mixer_attach(handle, CARD) < 0)
 		goto error;
-	if (snd_mixer_selem_register(handle, NULL, NULL) < 0)
+	else if (snd_mixer_selem_register(handle, NULL, NULL) < 0)
 		goto error;
-	if (snd_mixer_load(handle) < 0)
+	else if (snd_mixer_load(handle) < 0)
 		goto error;
+
 	snd_mixer_selem_id_alloca(&sid);
 	if (sid == NULL)
 		goto error;
+
 	snd_mixer_selem_id_set_index(sid, SND_INDEX);
 	snd_mixer_selem_id_set_name(sid, SND_CARD);
 	elem = snd_mixer_find_selem(handle, sid);
 	if (elem == NULL)
 		goto error;
-	if (snd_mixer_selem_get_playback_switch(elem, 0, &psw) < 0)
+	else if (snd_mixer_selem_get_playback_switch(elem, 0, &psw) < 0)
 		goto error;
 
 	if (!psw) {
-		strncpy(text, "婢 Mute | ", len);
+		strncpy(text, "V Mute | ", len);
 		goto end;
 	}
 
 	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
 	snd_mixer_selem_get_playback_volume(elem, 0, &volume);
 
-	snprintf(text, len, "墳 %.f%% | ", round((double)100*((double)(volume)/(double)(max))));
+	snprintf(text, len, "V %.f | ", round((double)100*((double)(volume)/(double)(max))));
 
 	end:
 		snd_mixer_close(handle);
@@ -220,8 +233,10 @@ volume(char *text, size_t len)
 	error:
 		if (handle != NULL)
 			snd_mixer_close(handle);
+
 		return UNKNOWN;
 }
+
 
 char *
 layout(char *text, size_t len, Display *dpy)
@@ -237,21 +252,23 @@ layout(char *text, size_t len, Display *dpy)
 		warn("XkbGetKeyboard()");
 		return UNKNOWN;
 	}
-	
+
 	XkbRF_VarDefsRec vd;
 	XkbRF_GetNamesProp(dpy, NULL, &vd);
 
 	char *layout = strtok(vd.layout, ",");
 	for (int i = 0; i < state.group; i++) {
 		layout = strtok(NULL, ",");
-		if (layout == NULL) {
+		if (layout == NULL)
 			return UNKNOWN;
-		}
 	}
 
-	snprintf(text, len, " %s | ", layout);
+	snprintf(text, len, "K %s | ", layout);
+	XkbFreeKeyboard(desc, XkbAllComponentsMask, 1);
+
 	return text;
 }
+
 
 int
 read_meminfo(struct meminfo *mem)
@@ -268,7 +285,7 @@ read_meminfo(struct meminfo *mem)
 	char line[128];
 	int flag = 0;
 
-	while (fgets(line, 512, fp) != NULL) {
+	while (fgets(line, 0x200, fp) != NULL) {
 		if (!strncmp(line, "MemTotal:", 9) && ++flag)
 			sscanf(line, "MemTotal: %lld", &(mem->memtotal));
 		else if (!strncmp(line, "MemFree:",8) && ++flag)
@@ -280,10 +297,8 @@ read_meminfo(struct meminfo *mem)
 		else if (!strncmp(line, "SReclaimable:", 13) && ++flag)
 			sscanf(line, "SReclaimable: %lld", &(mem->sreclaimable));
 		else
-			if (flag == 5)
+			if (flag >= 5)
 				break;
-			else
-				continue;
 	}
 
 	if (fclose(fp) == EOF)
@@ -292,6 +307,7 @@ read_meminfo(struct meminfo *mem)
 	return 1;
 }
 
+
 char *
 memory(char *text, size_t len)
 {
@@ -299,11 +315,9 @@ memory(char *text, size_t len)
 		return UNKNOWN;
 
 	struct meminfo meminfo_new;
-	char unit_used = 0;
-	char unit_total = 0;
+	char unit_used = 'M', unit_total = 'M';
 
 	memset(&meminfo_new, 0, sizeof(struct meminfo));
-
 	if (!read_meminfo(&meminfo_new))
 		return UNKNOWN;
 
@@ -311,25 +325,22 @@ memory(char *text, size_t len)
 		meminfo_new.buffers - meminfo_new.cached - meminfo_new.sreclaimable);
 	long double total = meminfo_new.memtotal;
 
-	if (used >= 1000000) {
+	if (used >= 1E6) {
 		unit_used = 'G';
-		used = used/(1000*1000);
-	} else {
-		unit_used = 'M';
-		used = used/(1000);
-	}
+		used = used/1E6;
+	} else
+		used = used/1E3;
 
-	if (total >= 1000000) {
+	if (total >= 1E6) {
 		unit_total = 'G';
-		total = total/(1000*1000);
-	} else {
-		unit_total = 'M';
-		total = total/(1000);
-	}
+		total = total/1E6;
+	} else
+		total = total/1E3;
 
-	snprintf(text, len, " %.1Lf %ci/%.1Lf %ci | ", used, unit_used, total, unit_total);
+	snprintf(text, len, "M %.1Lf %ci/%.1Lf %ci | ", used, unit_used, total, unit_total);
 	return text;
 }
+
 
 char *
 temp(char *text, size_t len)
@@ -346,17 +357,21 @@ temp(char *text, size_t len)
 	char value[3];
 	ssize_t d = read(fd, value, 3);
 	if (d == -1) {
+		if (close(fd) == -1)
+			warn("close(%s)", TEMP);
+
 		warn("read(%s)", TEMP);
 		return UNKNOWN;
 	}
-	*(value+d-1) = 0;
 
+	*(value+d-1) = 0;
 	if (close(fd) == -1)
 		warn("close(%s)", TEMP);
 
-	snprintf(text, len, " %s | ", value);
+	snprintf(text, len, "T %s | ", value);
 	return text;
 }
+
 
 char *
 cpu_prec(char *text, size_t len)
@@ -371,12 +386,12 @@ cpu_prec(char *text, size_t len)
 	}
 
 	char cpu[256];
-
 	struct cpu a = {0, 0};
 	static struct cpu b = {0, 0};
 
 	if (fgets(cpu, 256, stream) == NULL) {
 		warn("fgets(%s)", STAT);
+		fclose(stream);
 		return UNKNOWN;
 	}
 
@@ -385,6 +400,7 @@ cpu_prec(char *text, size_t len)
 	char *tok = strdup(cpu);
 	if (tok == NULL) {
 		warn("strdup()");
+		fclose(stream);
 		return UNKNOWN;
 	}
 
@@ -397,13 +413,18 @@ cpu_prec(char *text, size_t len)
 
 	if (b.sum == 0) {
 		memcpy(&b, &a, sizeof(struct cpu));
+		fclose(stream);
+		free(tok);
 		return UNKNOWN;
 	}
 
-	if (a.sum-b.sum == 0)
+	if (a.sum-b.sum == 0) {
+		fclose(stream);
+		free(tok);
 		return UNKNOWN;
+	}
 
-	snprintf(text, len, " %.f%% | ", round((double)((double)100*(double)(a.sum_3-b.sum_3)/(double)(a.sum-b.sum))));
+	snprintf(text, len, "C %.f | ", round((double)((double)100*(double)(a.sum_3-b.sum_3)/(double)(a.sum-b.sum))));
 	memcpy(&b, &a, sizeof(struct cpu));
 
 	free(tok);
@@ -412,76 +433,89 @@ cpu_prec(char *text, size_t len)
 	return text;
 }
 
+
 char *
 wifi(char *text, size_t len)
 {
 	if (text == NULL || len == 0)
 		return UNKNOWN;
 
-	int sockfd;
+	int sockfd = 0;
 	struct iwreq wreq;
 	char *id = calloc(sizeof(char), IW_ESSID_MAX_SIZE+1);
 
-	memset(&wreq, 0, sizeof(struct iwreq));
-	wreq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
-	strncpy(wreq.ifr_name, IW, sizeof(wreq.ifr_name));
+	for (int i = 0; IW[i] != NULL; i++) {
+		memset(&wreq, 0, sizeof(struct iwreq));
+		wreq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
+		strncpy(wreq.ifr_name, IW[i], sizeof(wreq.ifr_name));
 
-	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sockfd == -1) {
-		warn("socket()");
-		return UNKNOWN;
+		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (sockfd == -1) {
+			warn("socket()");
+			free(id);
+			return UNKNOWN;
+		}
+
+		wreq.u.essid.pointer = id;
+		if (ioctl(sockfd, SIOCGIWESSID, &wreq) == -1) {
+			if (close(sockfd) == -1)
+				warn("close()");
+
+			continue;
+		}
+
+		if (close(sockfd) == -1)
+			warn("close()");
+
+		break;
 	}
-
-	wreq.u.essid.pointer = id;
-	if (ioctl(sockfd, SIOCGIWESSID, &wreq) == -1) {
-		warn("ioctl()");
-		close(sockfd);
-		return UNKNOWN;
-	}
-
-	if (close(sockfd) == -1)
-		warn("close()");
 
 	if (*id == 0) {
 		free(id);
 		return UNKNOWN;
 	}
 
-	snprintf(text, len, " %s | ", id);
+	snprintf(text, len, "W %s | ", id);
 	free(id);
 
 	return text;
 }
 
+
 char *
 ethernet(char *text, size_t len)
 {
+	int sockfd = 0;
 	struct ifreq ifr;
-	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sockfd == -1) {
-		warn("socket()");
-		return UNKNOWN;
-	}
 
-	memset(&ifr, 0, sizeof(struct ifreq));
-	strncpy(ifr.ifr_name, ET, sizeof(ifr.ifr_name));
-	if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == -1) {
-		warn("ioctl()");
-		if(close(sockfd) == -1)
+	for (int i = 0; ET[i] != NULL; i++) {
+		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (sockfd == -1) {
+			warn("socket()");
+			return UNKNOWN;
+		}
+
+		memset(&ifr, 0, sizeof(struct ifreq));
+		strncpy(ifr.ifr_name, ET[i], sizeof(ifr.ifr_name));
+		if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == -1) {
+			if (close(sockfd) == -1)
+				warn("close()");
+
+			continue;
+		}
+
+		if (close(sockfd) == -1)
 			warn("close()");
-		return UNKNOWN;
-	}
 
-	if (close(sockfd) == -1)
-		warn("close()");
-
-	if (ifr.ifr_flags&IFF_RUNNING) {
-		strncpy(text, " Connected | ", len);
-		return text;
+		if (ifr.ifr_flags&IFF_RUNNING) {
+			strncpy(text, "ETH Connected | ", len);
+			return text;
+		}
 	}
 
 	return UNKNOWN;
 }
+
 
 char *
 openvpn(char *text, size_t len)
@@ -489,19 +523,16 @@ openvpn(char *text, size_t len)
 	if (text == NULL || len == 0)
 		return UNKNOWN;
 
-	struct if_nameindex *if_ni;
-	struct if_nameindex *i;
-
-	if_ni = if_nameindex();
+	struct if_nameindex *if_ni = if_nameindex();
 	if (if_ni == NULL) {
 		warn("if_nameindex()");
 		return UNKNOWN;
 	}
 
-	for (i = if_ni; i->if_index != 0 && i->if_name != NULL; i++)
-		for (size_t j = 0; *(vpn_interfaces+j) != NULL; j++)
-			if (!strncmp(i->if_name, *(vpn_interfaces+j), strlen(*(vpn_interfaces+j)))) {
-				strncpy(text, " VPN | ", len);
+	for (struct if_nameindex *i = if_ni; i->if_index != 0 && i->if_name != NULL; i++)
+		for (size_t j = 0; VI[j] != NULL; j++)
+			if (!strncmp(i->if_name, VI[j], strlen(VI[j]))) {
+				strncpy(text, "VPN ", len);
 				if_freenameindex(if_ni);
 				return text;
 			}
