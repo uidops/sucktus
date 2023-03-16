@@ -8,7 +8,7 @@ CFLAGS ?= -Wall -Wextra -O3 -march=native -flto -pipe
 all: sucktus
 
 sucktus: sucktus.c
-	$(CC) -o $@ $(CFLAGS) $^ $(LIBS)
+	$(CC) -o $@ $(CFLAGS) $^ $(LIBS) -lm
 
 .PHONY: clean test all
 
