@@ -285,7 +285,7 @@ read_meminfo(struct meminfo *mem)
 	char line[128];
 	int flag = 0;
 
-	while (fgets(line, 0x200, fp) != NULL) {
+	while (fgets(line, 0x80, fp) != NULL) {
 		if (!strncmp(line, "MemTotal:", 9) && ++flag)
 			sscanf(line, "MemTotal: %lld", &(mem->memtotal));
 		else if (!strncmp(line, "MemFree:",8) && ++flag)
