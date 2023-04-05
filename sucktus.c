@@ -441,6 +441,7 @@ wifi(char *text, size_t len)
 		return UNKNOWN;
 
 	int sockfd = 0;
+	struct ifreq ifr;
 	struct iwreq wreq;
 	char *id = calloc(sizeof(char), IW_ESSID_MAX_SIZE+1);
 
@@ -454,6 +455,15 @@ wifi(char *text, size_t len)
 			warn("socket()");
 			free(id);
 			return UNKNOWN;
+		}
+
+		memset(&ifr, 0, sizeof(struct ifreq));
+		strncpy(ifr.ifr_name, IW[i], sizeof(ifr.ifr_name));
+		if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == -1 || !(ifr.ifr_flags&IFF_RUNNING)) {
+			if (close(sockfd) == -1)
+				warn("close()");
+
+			continue;
 		}
 
 		wreq.u.essid.pointer = id;
