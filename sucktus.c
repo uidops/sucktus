@@ -142,7 +142,7 @@ battery(char *text, size_t len)
 	if (close(fd) == -1)
 		warn("close(%s)", TEMP);
 
-	snprintf(text, len, "%s %s | ", battery_status(), atoi(capacity)%100 ? capacity : "Full");
+	snprintf(text, len, "%s %s | ", battery_status(), atoi(capacity) < 100 ? capacity : "Full");
 
 	return text;
 }
