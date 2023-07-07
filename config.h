@@ -38,19 +38,19 @@ struct cpu {
 static int done = 1;
 
 
-char            *date(char *, size_t);
-char            *battery_status(void);
-char            *battery(char *, size_t);
-char            *volume(char *, size_t);
-char            *layout(char *, size_t, Display *);
-int              read_memory(struct meminfo *);
-char            *memory(char *, size_t);
-char            *temp(char *, size_t);
-char            *cpu_prec(char *, size_t);
-char            *wifi(char *, size_t);
-char            *ethernet(char *, size_t);
-char            *openvpn(char *, size_t);
-static void      change_done(int);
+char		*date(char *, size_t);
+char		*battery_status(void);
+char		*battery(char *, size_t);
+char		*volume(char *, size_t);
+char		*layout(char *, size_t, Display *);
+int		 read_memory(struct meminfo *);
+char		*memory(char *, size_t);
+char		*temp(char *, size_t);
+char		*cpu_prec(char *, size_t);
+char		*wifi(char *, size_t);
+char		*ethernet(char *, size_t);
+char		*openvpn(char *, size_t);
+static void		 change_done(int);
 
 #endif
 
