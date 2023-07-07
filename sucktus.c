@@ -1,5 +1,6 @@
 #include <alsa/asoundlib.h>
 #include <alsa/mixer.h>
+#include <dbus/dbus.h>
 #include <net/if.h>
 #include <linux/wireless.h>
 #include <sys/ioctl.h>
@@ -11,6 +12,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +49,7 @@ main(int argc, char **argv)
 
 	char date_text[11];
 	char battery_text[11];
+	char bluez_text[8];
 	char volume_text[12];
 	char layout_text[12];
 	char memory_text[64];
@@ -59,13 +62,13 @@ main(int argc, char **argv)
 	struct timespec timeout = {INTERVAL/1000, (INTERVAL%1000)*1E6};
 
 	while (done) {
-		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s  %s",
+		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s%s  %s",
 				openvpn(openvpn_text, sizeof(ethernet_text)), ethernet(ethernet_text, sizeof(ethernet_text)),
 				wifi(wifi_text, sizeof(wifi_text)),
 				cpu_prec(cpu_prec_text, 12), temp(temp_text, sizeof(temp_text)),
 				memory(memory_text, sizeof(memory_text)), layout(layout_text, sizeof(layout_text), dpy),
-				volume(volume_text, sizeof(volume_text)), battery(battery_text, sizeof(battery_text)),
-				date(date_text, sizeof(date_text)), ICON);
+				volume(volume_text, sizeof(volume_text)), bluez_battery(bluez_text, sizeof(bluez_text)),
+				battery(battery_text, sizeof(battery_text)), date(date_text, sizeof(date_text)), ICON);
 
 		XStoreName(dpy, DefaultRootWindow(dpy), text);
 		XSync(dpy, 0);
@@ -179,6 +182,58 @@ battery_status(void)
 		return "B+";
 	else
 		return "B!";
+}
+
+
+char *
+bluez_battery(char *text, size_t len)
+{
+	DBusConnection *con = NULL;
+	DBusMessage *msg = NULL;
+	DBusError error = {0};
+	DBusMessageIter args = {0}, var = {0};
+	DBusPendingCall *pending = NULL;
+
+	const char *device = "org.bluez.Battery1";
+	const char *perc = "Percentage";
+	uint8_t charge = 0xff;
+
+	dbus_error_init(&error);
+	con = dbus_bus_get(DBUS_BUS_SYSTEM, &error);
+	if (dbus_error_is_set(&error)) {
+		warnx("dbus_bus_get(): %s", error.message);
+		return UNKNOWN;
+	}
+
+	msg = dbus_message_new_method_call("org.bluez", BLZDEV, "org.freedesktop.DBus.Properties", "Get");
+	dbus_message_append_args(msg, DBUS_TYPE_STRING, &device, DBUS_TYPE_STRING, &perc, DBUS_TYPE_INVALID);
+	if (!dbus_connection_send_with_reply(con, msg, &pending, -1)) {
+		warnx("dbus_connection_send_with_reply(): failed");
+		return UNKNOWN;
+	}
+
+	dbus_connection_flush(con);
+	dbus_pending_call_block(pending);
+
+	msg = dbus_pending_call_steal_reply(pending);
+	if (!msg)
+		errx(EXIT_FAILURE, "dbus_pending_call_steal_reply(): failed");
+
+	if (dbus_message_iter_init(msg, &args) && dbus_message_iter_get_arg_type(&args) == DBUS_TYPE_VARIANT) {
+		dbus_message_iter_recurse(&args, &var);
+		if (dbus_message_iter_get_arg_type(&var) == DBUS_TYPE_BYTE)
+			dbus_message_iter_get_basic(&var, &charge);
+	}
+
+	dbus_pending_call_unref(pending);
+	dbus_message_unref(msg);
+	dbus_connection_unref(con);
+
+	if (charge == 0xff)
+		return UNKNOWN;
+
+	snprintf(text, len, "H %u | ", charge);
+	return text;
 }
 
 

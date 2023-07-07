@@ -17,6 +17,7 @@
 #define MEMINFO "/proc/meminfo"
 #define TEMP "/sys/class/thermal/thermal_zone1/temp"
 #define STAT "/proc/stat"
+#define BLZDEV "/org/bluez/hci0/dev_00_00_00_00_00_00"
 
 static char *IW[] = {"wlp2s0", NULL};
 static char *ET[] = {"enp1s0", "enp0s20f0u3", NULL};
@@ -41,6 +42,7 @@ static int done = 1;
 char		*date(char *, size_t);
 char		*battery_status(void);
 char		*battery(char *, size_t);
+char		*bluez_battery(char *, size_t);
 char		*volume(char *, size_t);
 char		*layout(char *, size_t, Display *);
 int		 read_memory(struct meminfo *);
