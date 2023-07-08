@@ -1,19 +1,18 @@
-#include <alsa/asoundlib.h>
-#include <alsa/mixer.h>
 #include <dbus/dbus.h>
+#include <pulse/pulseaudio.h>
 #include <net/if.h>
 #include <linux/wireless.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
+#include <stdio.h>
 #include <X11/extensions/XKBrules.h>
 #include <err.h>
 #include <fcntl.h>
 #include <math.h>
 #include <signal.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -237,59 +236,72 @@ bluez_battery(char *text, size_t len)
 }
 
 
+void
+_sink_info_callback(pa_context *context, const pa_sink_info *sink_info, int eol, void *userdata)
+{
+	(void) context; (void) userdata;
+	if (eol == 0)
+		vol = (sink_info->mute == 1) ? 0xff : (pa_cvolume_avg(&sink_info->volume) * 100) / PA_VOLUME_NORM;
+
+	pa_mainloop_quit(mainloop, 0);
+}
+
+
+void
+_server_info_callback(pa_context *context, const pa_server_info *server_info, void *userdata)
+{
+	(void) context; (void) userdata;
+	pa_operation_unref(pa_context_get_sink_info_by_name(context, server_info->default_sink_name, _sink_info_callback, NULL));
+}
+
+
+void
+_context_state_callback(pa_context *context, void *userdata)
+{
+    switch (pa_context_get_state(context)) {
+        case PA_CONTEXT_READY:
+            pa_operation_unref(pa_context_get_server_info(context, _server_info_callback, userdata));
+            break;
+
+        case PA_CONTEXT_FAILED:
+        case PA_CONTEXT_TERMINATED:
+            pa_mainloop_quit(mainloop, 0);
+            break;
+
+        default:
+            break;
+    }
+}
+
+
 char *
 volume(char *text, size_t len)
 {
-	if (text == NULL || len == 0)
+	pa_context *context = NULL;
+	pa_mainloop_api *api = NULL;
+
+	mainloop = pa_mainloop_new();
+	api = pa_mainloop_get_api(mainloop);
+	context = pa_context_new(api, "SUCKTUS");
+
+	pa_context_set_state_callback(context, _context_state_callback, NULL);
+	if (pa_context_connect(context, NULL, PA_CONTEXT_NOFLAGS, NULL) < 0) {
+		warnx("pa_context_connect(): failed");
 		return UNKNOWN;
-
-	int psw = 0;
-	long volume = 0, min = 0, max = 0;
-
-	snd_mixer_t *handle = NULL;
-	snd_mixer_selem_id_t *sid = NULL;
-	snd_mixer_elem_t *elem = NULL;
-
-	if (snd_mixer_open(&handle, 0) < 0)
-		return UNKNOWN;
-	else if (snd_mixer_attach(handle, CARD) < 0)
-		goto error;
-	else if (snd_mixer_selem_register(handle, NULL, NULL) < 0)
-		goto error;
-	else if (snd_mixer_load(handle) < 0)
-		goto error;
-
-	snd_mixer_selem_id_alloca(&sid);
-	if (sid == NULL)
-		goto error;
-
-	snd_mixer_selem_id_set_index(sid, SND_INDEX);
-	snd_mixer_selem_id_set_name(sid, SND_CARD);
-	elem = snd_mixer_find_selem(handle, sid);
-	if (elem == NULL)
-		goto error;
-	else if (snd_mixer_selem_get_playback_switch(elem, 0, &psw) < 0)
-		goto error;
-
-	if (!psw) {
-		strncpy(text, "V Mute | ", len);
-		goto end;
 	}
 
-	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
-	snd_mixer_selem_get_playback_volume(elem, 0, &volume);
+	pa_mainloop_run(mainloop, NULL);
 
-	snprintf(text, len, "V %.f | ", round((double)100*((double)(volume)/(double)(max))));
+	pa_context_disconnect(context);
+	pa_context_unref(context);
+	pa_mainloop_free(mainloop);
 
-	end:
-		snd_mixer_close(handle);
-		return text;
+	if (vol == 0xff)
+		snprintf(text, len, "V Mute | ");
+	else
+		snprintf(text, len, "V %u | ", vol);
 
-	error:
-		if (handle != NULL)
-			snd_mixer_close(handle);
-
-		return UNKNOWN;
+	return text;
 }
 
 

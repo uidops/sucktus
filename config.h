@@ -1,6 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <pulse/mainloop.h>
 #include <X11/Xlib.h>
 #include <stdio.h>
 
@@ -37,6 +38,8 @@ struct cpu {
 };
 
 static int done = 1;
+static pa_mainloop *mainloop = NULL;
+static unsigned vol = 0xff;
 
 
 char		*date(char *, size_t);

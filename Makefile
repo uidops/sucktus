@@ -1,7 +1,7 @@
 CC ?= cc
 ODIR=obj
 
-LIBS != pkg-config --cflags --libs x11 xkbfile alsa dbus-1
+LIBS != pkg-config --cflags --libs x11 xkbfile libpulse dbus-1
 
 CFLAGS ?= -Wall -Wextra -O3 -march=native -flto -pipe
 
