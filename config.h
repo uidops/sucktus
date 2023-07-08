@@ -5,7 +5,7 @@
 #include <X11/Xlib.h>
 #include <stdio.h>
 
-#define VERSION "v1.3"
+#define VERSION "v1.4"
 
 #define ICON ""
 #define UNKNOWN ""
