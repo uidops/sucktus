@@ -718,13 +718,13 @@ unitconv(char *retmsg, size_t len, uint64_t bps)
     else if (ndigits - 6 < 0)
         snprintf(retmsg, len, "%.1f KB/s | ", bps/1E3);
     else if (ndigits - 9 < 0)
-        snprintf(retmsg, len, "%1.f MB/s | ", bps/1E6);
+        snprintf(retmsg, len, "%.1f MB/s | ", bps/1E6);
     else if (ndigits - 9 < 0)
-        snprintf(retmsg, len, "%1.f GB/s | ", bps/1E9);
+        snprintf(retmsg, len, "%.1f GB/s | ", bps/1E9);
     else if (ndigits - 9 < 0)
-        snprintf(retmsg, len, "%1.f TB/s | ", bps/1E12);
+        snprintf(retmsg, len, "%.1f TB/s | ", bps/1E12);
     else
-        snprintf(retmsg, len, "%1.f PB/s | ", bps/1E15);
+        snprintf(retmsg, len, "%.1f PB/s | ", bps/1E15);
 
     return retmsg;
 }
