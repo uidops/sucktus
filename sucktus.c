@@ -2,6 +2,10 @@
 #include <pulse/pulseaudio.h>
 #include <net/if.h>
 #include <linux/wireless.h>
+#include <linux/if_link.h>
+#include <linux/rtnetlink.h>
+#include <net/if.h>
+#include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <X11/Xlib.h>
@@ -57,11 +61,14 @@ main(int argc, char **argv)
 	char wifi_text[IW_ESSID_MAX_SIZE+6];
 	char ethernet_text[19];
 	char openvpn_text[10];
+	char tmonitor_text[15];
 
 	struct timespec timeout = {INTERVAL/1000, (INTERVAL%1000)*1E6};
 
+	uint64_t rx_bytes = get_rx_bytes();
 	while (done) {
-		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s%s  %s",
+		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s%s%s  %s",
+				unitconv(tmonitor_text, sizeof(tmonitor_text), (get_rx_bytes() - rx_bytes) / (float) INTERVAL * 1000.0),
 				openvpn(openvpn_text, sizeof(ethernet_text)), ethernet(ethernet_text, sizeof(ethernet_text)),
 				wifi(wifi_text, sizeof(wifi_text)),
 				cpu_prec(cpu_prec_text, 12), temp(temp_text, sizeof(temp_text)),
@@ -71,6 +78,8 @@ main(int argc, char **argv)
 
 		XStoreName(dpy, DefaultRootWindow(dpy), text);
 		XSync(dpy, 0);
+
+		rx_bytes = get_rx_bytes();
 		nanosleep(&timeout, NULL);
 	}
 
@@ -616,4 +625,106 @@ openvpn(char *text, size_t len)
 
 	if_freenameindex(if_ni);
 	return UNKNOWN;
+}
+
+
+uint64_t
+get_rx_bytes(void)
+{
+    int sock = 0, rc = 0, len = 0;
+    uint8_t *buf = calloc(1 << 11, sizeof(uint8_t));
+    uint64_t rx_bytes = 0;
+    struct sockaddr_nl recv_addr = {0};
+    struct raw_netlink_route_metadata req = {0};
+    struct nlmsghdr *recv_hdr = NULL;
+    struct ifinfomsg *infomsg = NULL;
+    struct rtattr *rta = NULL;
+    struct rtnl_link_stats64 *stats64 = NULL;
+
+    sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    if (sock == -1)
+        err(EXIT_FAILURE, "socket()");
+
+    /* sockaddr_nl structure */
+    recv_addr.nl_family = AF_NETLINK;
+    recv_addr.nl_pad = 0;
+    recv_addr.nl_pid = getpid();
+    recv_addr.nl_groups = 0;
+
+    rc = bind(sock, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
+    if (rc == -1)
+        err(EXIT_FAILURE, "bind()");
+
+    /* nlmsghdr header */
+    req.nh.nlmsg_len = NLMSG_LENGTH(RTA_ALIGN(sizeof(struct ifinfomsg)));
+    req.nh.nlmsg_type = RTM_GETLINK;
+    req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    req.nh.nlmsg_pid = getpid();
+    req.nh.nlmsg_seq = 0;
+
+    /* ifinfomsg header */
+    req.ifmsg.ifi_family = AF_UNSPEC;
+    req.ifmsg.ifi_type = 0;
+    req.ifmsg.ifi_index = if_nametoindex(TM);
+    req.ifmsg.ifi_flags = 0;
+    req.ifmsg.ifi_change = 0xffffffff;
+
+    /* Routing attribute header */
+    req.rta.rta_type = IFLA_STATS;
+    req.rta.rta_len = RTA_LENGTH(0);
+
+    rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
+    if (rc == -1)
+        err(EXIT_FAILURE, "send()");
+
+    rc = recv(sock, buf, 1 << 11, 0);
+    if (rc == -1)
+        err(EXIT_FAILURE, "recv()");
+
+    recv_hdr = (struct nlmsghdr *) buf;
+    infomsg = NLMSG_DATA(recv_hdr);
+    rta = IFLA_RTA(infomsg);
+
+    len = recv_hdr->nlmsg_len;
+    while (RTA_OK(rta, len)) {
+        if (rta->rta_type == IFLA_STATS64) {
+            stats64 = RTA_DATA(rta);
+            rx_bytes = stats64->rx_bytes;
+            break;
+        }
+
+        rta = RTA_NEXT(rta, len);
+    }
+
+	free(buf);
+    close(sock);
+
+    return rx_bytes;
+}
+
+
+char *
+unitconv(char *retmsg, size_t len, uint64_t bps)
+{
+    int ndigits = 0;
+    if (bps == 0) {
+        snprintf(retmsg, len, "");
+        return retmsg;
+    }
+
+    ndigits = log10(bps);
+    if (ndigits - 3 < 0)
+        snprintf(retmsg, len, "%zu B/s | ", bps);
+    else if (ndigits - 6 < 0)
+        snprintf(retmsg, len, "%.1f KB/s | ", bps/1E3);
+    else if (ndigits - 9 < 0)
+        snprintf(retmsg, len, "%1.f MB/s | ", bps/1E6);
+    else if (ndigits - 9 < 0)
+        snprintf(retmsg, len, "%1.f GB/s | ", bps/1E9);
+    else if (ndigits - 9 < 0)
+        snprintf(retmsg, len, "%1.f TB/s | ", bps/1E12);
+    else
+        snprintf(retmsg, len, "%1.f PB/s | ", bps/1E15);
+
+    return retmsg;
 }

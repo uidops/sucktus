@@ -3,9 +3,10 @@
 
 #include <pulse/mainloop.h>
 #include <X11/Xlib.h>
+#include <linux/rtnetlink.h>
 #include <stdio.h>
 
-#define VERSION "v1.4"
+#define VERSION "v1.5"
 
 #define ICON ""
 #define UNKNOWN ""
@@ -19,6 +20,7 @@
 #define TEMP "/sys/class/thermal/thermal_zone1/temp"
 #define STAT "/proc/stat"
 #define BLZDEV "/org/bluez/hci0/dev_00_00_00_00_00_00"
+#define TM "wlp3s0"
 
 static char *IW[] = {"wlp2s0", NULL};
 static char *ET[] = {"enp1s0", "enp0s20f0u3", NULL};
@@ -35,6 +37,12 @@ struct meminfo {
 struct cpu {
     long long int sum;
     long long int sum_3;
+};
+
+struct raw_netlink_route_metadata {
+    struct nlmsghdr nh;
+    struct ifinfomsg ifmsg;
+    struct rtattr rta;
 };
 
 static int done = 1;
@@ -55,6 +63,8 @@ char		*cpu_prec(char *, size_t);
 char		*wifi(char *, size_t);
 char		*ethernet(char *, size_t);
 char		*openvpn(char *, size_t);
+char		*unitconv(char *, size_t, uint64_t);
+uint64_t		 get_rx_bytes(void);
 static void		 change_done(int);
 
 #endif
