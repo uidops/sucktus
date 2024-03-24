@@ -29,7 +29,6 @@
 #define BUFLEN (1 << 12)
 
 
-static char *IW[] = {"wlp2s0", "wlp3s0", "wlp0s20f0u3", "wlan0", NULL};
 static char *ET[] = {"enp1s0", "enp0s20f0u2", NULL};
 static char *VI[] = {"tun0", "proton0", NULL};
 

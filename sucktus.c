@@ -526,94 +526,98 @@ wifi(char *text, size_t len)
     struct nlmsghdr *nlmh = NULL;
     struct nlattr *nla = NULL;
 
-    fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
-    if (fd == -1) {
-        warn("socket()");
+	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
+	if (fd == -1) {
+		warn("socket()");
 		return UNKNOWN;
 	}
 
-    sa.nl_family = AF_NETLINK;
-    sa.nl_groups = 0;
-    sa.nl_pad = 0;
-    sa.nl_pid = getpid();
+	sa.nl_family = AF_NETLINK;
+	sa.nl_groups = 0;
+	sa.nl_pad = 0;
+	sa.nl_pid = getpid();
 
-    if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
-        warn("bind()");
+	if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
+		warn("bind()");
+		close(fd);
 		return UNKNOWN;
 	}
 
-    req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
-    req.nlmh.nlmsg_type = GENL_ID_CTRL;
-    req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-    req.nlmh.nlmsg_seq = 1;
-    req.nlmh.nlmsg_pid = getpid();
+	req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+	req.nlmh.nlmsg_type = GENL_ID_CTRL;
+	req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.nlmh.nlmsg_seq = 1;
+	req.nlmh.nlmsg_pid = getpid();
 
-    req.genlmh.cmd = CTRL_CMD_GETFAMILY;
-    req.genlmh.version = 2;
-    req.genlmh.reserved = 0;
+	req.genlmh.cmd = CTRL_CMD_GETFAMILY;
+	req.genlmh.version = 2;
+	req.genlmh.reserved = 0;
 
-    nla = (struct nlattr *) GENLMSG_DATA(&req);
-    nla->nla_type = CTRL_ATTR_FAMILY_NAME;
-    nla->nla_len = strlen(NL80211_GENL_NAME) + 1 + NLA_HDRLEN;
-    strcpy(NLA_DATA(nla), NL80211_GENL_NAME);
+	nla = (struct nlattr *) GENLMSG_DATA(&req);
+	nla->nla_type = CTRL_ATTR_FAMILY_NAME;
+	nla->nla_len = strlen(NL80211_GENL_NAME) + 1 + NLA_HDRLEN;
+	strcpy(NLA_DATA(nla), NL80211_GENL_NAME);
 
-    req.nlmh.nlmsg_len += NLMSG_ALIGN(nla->nla_len);
+	req.nlmh.nlmsg_len += NLMSG_ALIGN(nla->nla_len);
 
-    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
-        warn("send()");
+	buf = calloc(BUFLEN, sizeof(uint8_t));
+	if (buf == NULL) {
+		warn("calloc()");
+		close(fd);
 		return UNKNOWN;
 	}
 
-    buf = calloc(BUFLEN, sizeof(uint8_t));
-    if (buf == NULL) {
-        warn("calloc()");
+	if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
+		warn("send()");
+		free(buf);
+		close(fd);
 		return UNKNOWN;
 	}
 
-    while (recv(fd, buf, BUFLEN, 0) > 0) {
-        nlmh = (struct nlmsghdr *) buf;
-        nla = GENLMSG_DATA(nlmh);
-        while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
-            if (nla->nla_type == CTRL_ATTR_FAMILY_ID)
-                family_id = *((uint32_t *) NLA_DATA(nla));
-
-            nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
-        }
-    }
-
-    req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
-    req.nlmh.nlmsg_type = family_id;
-    req.nlmh.nlmsg_seq = 2;
-    req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP;
-
-    req.genlmh.cmd = NL80211_CMD_GET_INTERFACE;
-    req.genlmh.version = 0;
-
-    nla = (struct nlattr *) GENLMSG_DATA(&req);
-    nla->nla_type = NL80211_ATTR_SSID;
-    nla->nla_len = sizeof(uint32_t) + NLA_HDRLEN;
-    uint32_t ifindex = if_nametoindex("wlp3s0");
-    memcpy(NLA_DATA(nla), &ifindex, sizeof(uint32_t));
-
-    req.nlmh.nlmsg_len += NLA_ALIGN(nla->nla_len);
-
-    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
-        warn("send()");
+	if (buf == NULL) {
+		warn("calloc()");
+		free(buf);
+		close(fd);
 		return UNKNOWN;
 	}
 
-    memset(buf, 0, BUFLEN);
-    while (recv(fd, buf, BUFLEN, 0) > 0) {
-        nlmh = (struct nlmsghdr *) buf;
-        nla = GENLMSG_DATA(nlmh);
-        while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
-            if (nla->nla_type == NL80211_ATTR_SSID)
-                ssid = NLA_DATA(nla);
+	while (recv(fd, buf, BUFLEN, 0) > 0) {
+		nlmh = (struct nlmsghdr *) buf;
+		nla = GENLMSG_DATA(nlmh);
+		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+			if (nla->nla_type == CTRL_ATTR_FAMILY_ID)
+				family_id = *((uint32_t *) NLA_DATA(nla));
 
-            nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
-        }
-    }
-	
+			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+		}
+	}
+
+	req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+	req.nlmh.nlmsg_type = family_id;
+	req.nlmh.nlmsg_seq = 2;
+	req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP;
+
+	req.genlmh.cmd = NL80211_CMD_GET_INTERFACE;
+	req.genlmh.version = 0;
+
+	if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
+		warn("send()");
+		free(buf);
+		close(fd);
+		return UNKNOWN;
+	}
+
+	while (recv(fd, buf, BUFLEN, 0) > 0) {
+		nlmh = (struct nlmsghdr *) buf;
+		nla = GENLMSG_DATA(nlmh);
+		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+			if (nla->nla_type == NL80211_ATTR_SSID)
+				ssid = NLA_DATA(nla);
+
+			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+		}
+	}
+
 	if (ssid != NULL)
 		snprintf(text, len, "W %s | ", ssid);
 
@@ -690,7 +694,7 @@ openvpn(char *text, size_t len)
 uint64_t
 get_rx_bytes(void)
 {
-	int sock = 0, rc = 0, len = 0;
+	int fd = 0, rc = 0, len = 0;
 	uint8_t *buf = NULL;
 	uint64_t rx_bytes = 0;
 	struct sockaddr_nl recv_addr = {0};
@@ -700,8 +704,8 @@ get_rx_bytes(void)
 	struct rtattr *rta = NULL;
 	struct rtnl_link_stats64 *stats64 = NULL;
 
-	sock = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
-	if (sock == -1) {
+	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
+	if (fd == -1) {
 		warn("socket()");
 		return 0;
 	}
@@ -711,9 +715,10 @@ get_rx_bytes(void)
 	recv_addr.nl_pid = getpid();
 	recv_addr.nl_groups = 0;
 
-	rc = bind(sock, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
+	rc = bind(fd, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
 	if (rc == -1) {
 		warn("bind()");
+		close(fd);
 		return 0;
 	}
 
@@ -735,19 +740,21 @@ get_rx_bytes(void)
  
 	req.nlmh.nlmsg_len += RTA_ALIGN(rta->rta_len);
 
-	rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
+	rc = send(fd, &req, sizeof(struct raw_netlink_route_metadata), 0);
 	if (rc == -1) {
 		warn("send()");
+		close(fd);
 		return 0;
 	}
 
 	buf = calloc(BUFLEN, sizeof(uint8_t));
 	if (buf == NULL) {
 		warn("calloc()");
+		close(fd);
 		return 0;
 	}
 
-	while (recv(sock, buf, BUFLEN, 0) > 0) {
+	while (recv(fd, buf, BUFLEN, 0) > 0) {
 		recv_hdr = (struct nlmsghdr *) buf;
 		infomsg = NLMSG_DATA(recv_hdr);
 		rta = IFLA_RTA(infomsg);
@@ -765,7 +772,7 @@ get_rx_bytes(void)
 	}
 
 	free(buf);
-	close(sock);
+	close(fd);
 
 	return rx_bytes;
 }
