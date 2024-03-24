@@ -48,9 +48,9 @@ struct cpu {
 };
 
 struct raw_netlink_route_metadata {
-    struct nlmsghdr nh;
-    struct ifinfomsg ifmsg;
-    struct rtattr rta;
+	struct nlmsghdr nlmh;
+	struct ifinfomsg ifmh;
+	unsigned char attrs[256];
 };
 
 struct raw_netlink_generic_metadata {

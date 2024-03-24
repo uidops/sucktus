@@ -690,11 +690,10 @@ get_rx_bytes(void)
 	struct rtattr *rta = NULL;
 	struct rtnl_link_stats64 *stats64 = NULL;
 
-	sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	sock = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
 	if (sock == -1)
 		err(EXIT_FAILURE, "socket()");
 
-	/* sockaddr_nl structure */
 	recv_addr.nl_family = AF_NETLINK;
 	recv_addr.nl_pad = 0;
 	recv_addr.nl_pid = getpid();
@@ -704,23 +703,23 @@ get_rx_bytes(void)
 	if (rc == -1)
 		err(EXIT_FAILURE, "bind()");
 
-	/* nlmsghdr header */
-	req.nh.nlmsg_len = NLMSG_LENGTH(RTA_ALIGN(sizeof(struct ifinfomsg)));
-	req.nh.nlmsg_type = RTM_GETLINK;
-	req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-	req.nh.nlmsg_pid = getpid();
-	req.nh.nlmsg_seq = 0;
+	req.nlmh.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+	req.nlmh.nlmsg_type = RTM_GETLINK;
+	req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.nlmh.nlmsg_pid = getpid();
+	req.nlmh.nlmsg_seq = 1;
 
-	/* ifinfomsg header */
-	req.ifmsg.ifi_family = AF_UNSPEC;
-	req.ifmsg.ifi_type = 0;
-	req.ifmsg.ifi_index = if_nametoindex(TM);
-	req.ifmsg.ifi_flags = 0;
-	req.ifmsg.ifi_change = 0xffffffff;
+	req.ifmh.ifi_family = AF_UNSPEC;
+	req.ifmh.ifi_type = 0;
+	req.ifmh.ifi_index = if_nametoindex(TM);
+	req.ifmh.ifi_flags = 0;
+	req.ifmh.ifi_change = 0xffffffff;
 
-	/* Routing attribute header */
-	req.rta.rta_type = IFLA_STATS;
-	req.rta.rta_len = RTA_LENGTH(0);
+	rta = IFLA_RTA(&req.ifmh);
+	rta->rta_type = IFLA_STATS;
+	rta->rta_len = RTA_LENGTH(0);
+ 
+	req.nlmh.nlmsg_len += RTA_ALIGN(rta->rta_len);
 
 	rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
 	if (rc == -1)
@@ -730,23 +729,21 @@ get_rx_bytes(void)
 	if (buf == NULL)
 		err(EXIT_FAILURE, "calloc()");
 
-	rc = recv(sock, buf, BUFLEN, 0);
-	if (rc == -1)
-		err(EXIT_FAILURE, "recv()");
+	while (recv(sock, buf, BUFLEN, 0) > 0) {
+		recv_hdr = (struct nlmsghdr *) buf;
+		infomsg = NLMSG_DATA(recv_hdr);
+		rta = IFLA_RTA(infomsg);
 
-	recv_hdr = (struct nlmsghdr *) buf;
-	infomsg = NLMSG_DATA(recv_hdr);
-	rta = IFLA_RTA(infomsg);
+		len = recv_hdr->nlmsg_len;
+		while (RTA_OK(rta, len)) {
+			if (rta->rta_type == IFLA_STATS64) {
+				stats64 = RTA_DATA(rta);
+				rx_bytes = stats64->rx_bytes;
+				break;
+			}
 
-	len = recv_hdr->nlmsg_len;
-	while (RTA_OK(rta, len)) {
-		if (rta->rta_type == IFLA_STATS64) {
-			stats64 = RTA_DATA(rta);
-			rx_bytes = stats64->rx_bytes;
-			break;
+			rta = RTA_NEXT(rta, len);
 		}
-
-		rta = RTA_NEXT(rta, len);
 	}
 
 	free(buf);
