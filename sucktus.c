@@ -1,13 +1,10 @@
 #include <dbus/dbus.h>
 #include <pulse/pulseaudio.h>
 #include <net/if.h>
-#include <linux/if_link.h>
-#include <linux/netlink.h>
 #include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/nl80211.h>
 #include <linux/wireless.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
