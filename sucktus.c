@@ -527,16 +527,20 @@ wifi(char *text, size_t len)
     struct nlattr *nla = NULL;
 
     fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
-    if (fd == -1)
-        err(EXIT_FAILURE, "socket()");
+    if (fd == -1) {
+        warn("socket()");
+		return UNKNOWN;
+	}
 
     sa.nl_family = AF_NETLINK;
     sa.nl_groups = 0;
     sa.nl_pad = 0;
     sa.nl_pid = getpid();
 
-    if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1)
-        err(EXIT_FAILURE, "bind()");
+    if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
+        warn("bind()");
+		return UNKNOWN;
+	}
 
     req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
     req.nlmh.nlmsg_type = GENL_ID_CTRL;
@@ -555,12 +559,16 @@ wifi(char *text, size_t len)
 
     req.nlmh.nlmsg_len += NLMSG_ALIGN(nla->nla_len);
 
-    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1)
-        err(EXIT_FAILURE, "send()");
+    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
+        warn("send()");
+		return UNKNOWN;
+	}
 
     buf = calloc(BUFLEN, sizeof(uint8_t));
-    if (buf == NULL)
-        err(EXIT_FAILURE, "calloc()");
+    if (buf == NULL) {
+        warn("calloc()");
+		return UNKNOWN;
+	}
 
     while (recv(fd, buf, BUFLEN, 0) > 0) {
         nlmh = (struct nlmsghdr *) buf;
@@ -589,8 +597,10 @@ wifi(char *text, size_t len)
 
     req.nlmh.nlmsg_len += NLA_ALIGN(nla->nla_len);
 
-    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1)
-        err(EXIT_FAILURE, "send()");
+    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
+        warn("send()");
+		return UNKNOWN;
+	}
 
     memset(buf, 0, BUFLEN);
     while (recv(fd, buf, BUFLEN, 0) > 0) {
@@ -691,8 +701,10 @@ get_rx_bytes(void)
 	struct rtnl_link_stats64 *stats64 = NULL;
 
 	sock = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
-	if (sock == -1)
-		err(EXIT_FAILURE, "socket()");
+	if (sock == -1) {
+		warn("socket()");
+		return 0;
+	}
 
 	recv_addr.nl_family = AF_NETLINK;
 	recv_addr.nl_pad = 0;
@@ -700,8 +712,10 @@ get_rx_bytes(void)
 	recv_addr.nl_groups = 0;
 
 	rc = bind(sock, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
-	if (rc == -1)
-		err(EXIT_FAILURE, "bind()");
+	if (rc == -1) {
+		warn("bind()");
+		return 0;
+	}
 
 	req.nlmh.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
 	req.nlmh.nlmsg_type = RTM_GETLINK;
@@ -722,12 +736,16 @@ get_rx_bytes(void)
 	req.nlmh.nlmsg_len += RTA_ALIGN(rta->rta_len);
 
 	rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
-	if (rc == -1)
-		err(EXIT_FAILURE, "send()");
+	if (rc == -1) {
+		warn("send()");
+		return 0;
+	}
 
 	buf = calloc(BUFLEN, sizeof(uint8_t));
-	if (buf == NULL)
-		err(EXIT_FAILURE, "calloc()");
+	if (buf == NULL) {
+		warn("calloc()");
+		return 0;
+	}
 
 	while (recv(sock, buf, BUFLEN, 0) > 0) {
 		recv_hdr = (struct nlmsghdr *) buf;
