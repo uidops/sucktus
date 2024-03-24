@@ -7,7 +7,7 @@
 #include <linux/rtnetlink.h>
 #include <stdio.h>
 
-#define VERSION "v1.5"
+#define VERSION "v2.0"
 
 #define ICON ""
 #define UNKNOWN ""
