@@ -29,7 +29,7 @@
 #define BUFLEN (1 << 12)
 
 
-static char *ET[] = {"enp1s0", "enp0s20f0u2", NULL};
+static char *ET[] = {"enp1s0", "enp0s20f0u2", "enp2s0", NULL};
 static char *VI[] = {"tun0", "proton0", NULL};
 
 

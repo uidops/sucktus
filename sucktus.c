@@ -634,35 +634,80 @@ wifi(char *text, size_t len)
 char *
 ethernet(char *text, size_t len)
 {
-	int sockfd = 0;
-	struct ifreq ifr;
+	int fd = 0, n = 0;
+	uint8_t *buf = NULL;
+	struct sockaddr_nl sa = {0};
+	struct raw_netlink_route_metadata req = {0};
+	struct nlmsghdr *nlmh = NULL;
+	struct ifinfomsg *ifi = NULL;
+
+	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
+	if (fd == -1) {
+		warn("socket()");
+		return UNKNOWN;
+	}
+
+	buf = calloc(BUFLEN, sizeof(uint8_t));
+	if (buf == NULL) {
+		warn("calloc()");
+		return UNKNOWN;
+	}
 
 	for (int i = 0; ET[i] != NULL; i++) {
-		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-		if (sockfd == -1) {
-			warn("socket()");
-			return UNKNOWN;
-		}
+		sa.nl_family = AF_NETLINK;
+		sa.nl_groups = 0;
+		sa.nl_pad = 0;
+		sa.nl_pid = getpid();
 
-		memset(&ifr, 0, sizeof(struct ifreq));
-		strncpy(ifr.ifr_name, ET[i], sizeof(ifr.ifr_name));
-		if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == -1) {
-			if (close(sockfd) == -1)
-				warn("close()");
-
+		if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
+			warn("bind()");
 			continue;
 		}
 
-		if (close(sockfd) == -1)
-			warn("close()");
+		req.nlmh.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+		req.nlmh.nlmsg_type = RTM_GETLINK;
+		req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+		req.nlmh.nlmsg_pid = getpid();
+		req.nlmh.nlmsg_seq = i;
 
-		if (ifr.ifr_flags&IFF_RUNNING) {
-			strncpy(text, "ETH Connected | ", len);
-			return text;
+		req.ifmh.ifi_family = AF_UNSPEC;
+		req.ifmh.ifi_type = 0;
+		req.ifmh.ifi_index = if_nametoindex(ET[i]);
+		if (req.ifmh.ifi_index == 0)
+			continue;
+
+		req.ifmh.ifi_flags = 0;
+		req.ifmh.ifi_change = 0xffffffff;
+
+		if (send(fd, &req, req.nlmh.nlmsg_len, 0) == -1) {
+			warn("send()");
+			continue;
 		}
+
+        while (recv(fd, buf, BUFLEN, 0) > 0) {
+			nlmh = (struct nlmsghdr *) buf;
+			if (nlmh->nlmsg_type == RTM_NEWLINK) {
+				ifi = (struct ifinfomsg *) NLMSG_DATA(nlmh);
+				if (ifi->ifi_flags & IFF_RUNNING) {
+					n = 1;
+					break;
+				}
+			}
+        }
+
+		if (n) break;
 	}
 
-	return UNKNOWN;
+	if (n)
+		strncpy(text, "ETH Connected | ", len);
+
+	else
+		text = UNKNOWN;
+
+	free(buf);
+	close(fd);
+
+	return text;
 }
 
 
@@ -731,6 +776,12 @@ get_rx_bytes(void)
 	req.ifmh.ifi_family = AF_UNSPEC;
 	req.ifmh.ifi_type = 0;
 	req.ifmh.ifi_index = if_nametoindex(TM);
+	if (req.ifmh.ifi_index == 0) {
+		warn("if_nametoindex(%s)", TM);
+		close(fd);
+		return 0;
+	}
+
 	req.ifmh.ifi_flags = 0;
 	req.ifmh.ifi_change = 0xffffffff;
 
