@@ -1,11 +1,12 @@
 #include <dbus/dbus.h>
 #include <pulse/pulseaudio.h>
 #include <net/if.h>
-#include <linux/wireless.h>
 #include <linux/if_link.h>
+#include <linux/netlink.h>
+#include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
-#include <net/if.h>
-#include <sys/socket.h>
+#include <linux/nl80211.h>
+#include <linux/wireless.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <X11/Xlib.h>
@@ -516,53 +517,101 @@ wifi(char *text, size_t len)
 	if (text == NULL || len == 0)
 		return UNKNOWN;
 
-	int sockfd = 0;
-	struct ifreq ifr;
-	struct iwreq wreq;
-	char *id = calloc(sizeof(char), IW_ESSID_MAX_SIZE+1);
+    int fd = 0;
+    uint8_t *buf = NULL;
+    uint32_t family_id = 0;
+	char *ssid = NULL;
+    struct sockaddr_nl sa = {0};
+    struct raw_netlink_generic_metadata req = {0};
+    struct nlmsghdr *nlmh = NULL;
+    struct nlattr *nla = NULL;
 
-	for (int i = 0; IW[i] != NULL; i++) {
-		memset(&wreq, 0, sizeof(struct iwreq));
-		wreq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
-		strncpy(wreq.ifr_name, IW[i], sizeof(wreq.ifr_name));
+    fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
+    if (fd == -1)
+        err(EXIT_FAILURE, "socket()");
 
-		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-		if (sockfd == -1) {
-			warn("socket()");
-			free(id);
-			return UNKNOWN;
-		}
+    sa.nl_family = AF_NETLINK;
+    sa.nl_groups = 0;
+    sa.nl_pad = 0;
+    sa.nl_pid = getpid();
 
-		memset(&ifr, 0, sizeof(struct ifreq));
-		strncpy(ifr.ifr_name, IW[i], sizeof(ifr.ifr_name));
-		if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) == -1 || !(ifr.ifr_flags&IFF_RUNNING)) {
-			if (close(sockfd) == -1)
-				warn("close()");
+    if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1)
+        err(EXIT_FAILURE, "bind()");
 
-			continue;
-		}
+    req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+    req.nlmh.nlmsg_type = GENL_ID_CTRL;
+    req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    req.nlmh.nlmsg_seq = 1;
+    req.nlmh.nlmsg_pid = getpid();
 
-		wreq.u.essid.pointer = id;
-		if (ioctl(sockfd, SIOCGIWESSID, &wreq) == -1) {
-			if (close(sockfd) == -1)
-				warn("close()");
+    req.genlmh.cmd = CTRL_CMD_GETFAMILY;
+    req.genlmh.version = 2;
+    req.genlmh.reserved = 0;
 
-			continue;
-		}
+    nla = (struct nlattr *) GENLMSG_DATA(&req);
+    nla->nla_type = CTRL_ATTR_FAMILY_NAME;
+    nla->nla_len = strlen(NL80211_GENL_NAME) + 1 + NLA_HDRLEN;
+    strcpy(NLA_DATA(nla), NL80211_GENL_NAME);
 
-		if (close(sockfd) == -1)
-			warn("close()");
+    req.nlmh.nlmsg_len += NLMSG_ALIGN(nla->nla_len);
 
-		break;
-	}
+    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1)
+        err(EXIT_FAILURE, "send()");
 
-	if (*id == 0) {
-		free(id);
-		return UNKNOWN;
-	}
+    buf = calloc(BUFLEN, sizeof(uint8_t));
+    if (buf == NULL)
+        err(EXIT_FAILURE, "calloc()");
 
-	snprintf(text, len, "W %s | ", id);
-	free(id);
+    while (recv(fd, buf, BUFLEN, 0) > 0) {
+        nlmh = (struct nlmsghdr *) buf;
+        nla = GENLMSG_DATA(nlmh);
+        while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+            if (nla->nla_type == CTRL_ATTR_FAMILY_ID)
+                family_id = *((uint32_t *) NLA_DATA(nla));
+
+            nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+        }
+    }
+
+    req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+    req.nlmh.nlmsg_type = family_id;
+    req.nlmh.nlmsg_seq = 2;
+    req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP;
+
+    req.genlmh.cmd = NL80211_CMD_GET_INTERFACE;
+    req.genlmh.version = 0;
+
+    nla = (struct nlattr *) GENLMSG_DATA(&req);
+    nla->nla_type = NL80211_ATTR_SSID;
+    nla->nla_len = sizeof(uint32_t) + NLA_HDRLEN;
+    uint32_t ifindex = if_nametoindex("wlp3s0");
+    memcpy(NLA_DATA(nla), &ifindex, sizeof(uint32_t));
+
+    req.nlmh.nlmsg_len += NLA_ALIGN(nla->nla_len);
+
+    if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1)
+        err(EXIT_FAILURE, "send()");
+
+    memset(buf, 0, BUFLEN);
+    while (recv(fd, buf, BUFLEN, 0) > 0) {
+        nlmh = (struct nlmsghdr *) buf;
+        nla = GENLMSG_DATA(nlmh);
+        while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+            if (nla->nla_type == NL80211_ATTR_SSID)
+                ssid = NLA_DATA(nla);
+
+            nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+        }
+    }
+	
+	if (ssid != NULL)
+		snprintf(text, len, "W %s | ", ssid);
+
+	else
+		text = UNKNOWN;
+
+	free(buf);
+	close(fd);
 
 	return text;
 }
@@ -631,75 +680,79 @@ openvpn(char *text, size_t len)
 uint64_t
 get_rx_bytes(void)
 {
-    int sock = 0, rc = 0, len = 0;
-    uint8_t *buf = calloc(1 << 11, sizeof(uint8_t));
-    uint64_t rx_bytes = 0;
-    struct sockaddr_nl recv_addr = {0};
-    struct raw_netlink_route_metadata req = {0};
-    struct nlmsghdr *recv_hdr = NULL;
-    struct ifinfomsg *infomsg = NULL;
-    struct rtattr *rta = NULL;
-    struct rtnl_link_stats64 *stats64 = NULL;
+	int sock = 0, rc = 0, len = 0;
+	uint8_t *buf = NULL;
+	uint64_t rx_bytes = 0;
+	struct sockaddr_nl recv_addr = {0};
+	struct raw_netlink_route_metadata req = {0};
+	struct nlmsghdr *recv_hdr = NULL;
+	struct ifinfomsg *infomsg = NULL;
+	struct rtattr *rta = NULL;
+	struct rtnl_link_stats64 *stats64 = NULL;
 
-    sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
-    if (sock == -1)
-        err(EXIT_FAILURE, "socket()");
+	sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	if (sock == -1)
+		err(EXIT_FAILURE, "socket()");
 
-    /* sockaddr_nl structure */
-    recv_addr.nl_family = AF_NETLINK;
-    recv_addr.nl_pad = 0;
-    recv_addr.nl_pid = getpid();
-    recv_addr.nl_groups = 0;
+	/* sockaddr_nl structure */
+	recv_addr.nl_family = AF_NETLINK;
+	recv_addr.nl_pad = 0;
+	recv_addr.nl_pid = getpid();
+	recv_addr.nl_groups = 0;
 
-    rc = bind(sock, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
-    if (rc == -1)
-        err(EXIT_FAILURE, "bind()");
+	rc = bind(sock, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
+	if (rc == -1)
+		err(EXIT_FAILURE, "bind()");
 
-    /* nlmsghdr header */
-    req.nh.nlmsg_len = NLMSG_LENGTH(RTA_ALIGN(sizeof(struct ifinfomsg)));
-    req.nh.nlmsg_type = RTM_GETLINK;
-    req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-    req.nh.nlmsg_pid = getpid();
-    req.nh.nlmsg_seq = 0;
+	/* nlmsghdr header */
+	req.nh.nlmsg_len = NLMSG_LENGTH(RTA_ALIGN(sizeof(struct ifinfomsg)));
+	req.nh.nlmsg_type = RTM_GETLINK;
+	req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.nh.nlmsg_pid = getpid();
+	req.nh.nlmsg_seq = 0;
 
-    /* ifinfomsg header */
-    req.ifmsg.ifi_family = AF_UNSPEC;
-    req.ifmsg.ifi_type = 0;
-    req.ifmsg.ifi_index = if_nametoindex(TM);
-    req.ifmsg.ifi_flags = 0;
-    req.ifmsg.ifi_change = 0xffffffff;
+	/* ifinfomsg header */
+	req.ifmsg.ifi_family = AF_UNSPEC;
+	req.ifmsg.ifi_type = 0;
+	req.ifmsg.ifi_index = if_nametoindex(TM);
+	req.ifmsg.ifi_flags = 0;
+	req.ifmsg.ifi_change = 0xffffffff;
 
-    /* Routing attribute header */
-    req.rta.rta_type = IFLA_STATS;
-    req.rta.rta_len = RTA_LENGTH(0);
+	/* Routing attribute header */
+	req.rta.rta_type = IFLA_STATS;
+	req.rta.rta_len = RTA_LENGTH(0);
 
-    rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
-    if (rc == -1)
-        err(EXIT_FAILURE, "send()");
+	rc = send(sock, &req, sizeof(struct raw_netlink_route_metadata), 0);
+	if (rc == -1)
+		err(EXIT_FAILURE, "send()");
 
-    rc = recv(sock, buf, 1 << 11, 0);
-    if (rc == -1)
-        err(EXIT_FAILURE, "recv()");
+	buf = calloc(BUFLEN, sizeof(uint8_t));
+	if (buf == NULL)
+		err(EXIT_FAILURE, "calloc()");
 
-    recv_hdr = (struct nlmsghdr *) buf;
-    infomsg = NLMSG_DATA(recv_hdr);
-    rta = IFLA_RTA(infomsg);
+	rc = recv(sock, buf, BUFLEN, 0);
+	if (rc == -1)
+		err(EXIT_FAILURE, "recv()");
 
-    len = recv_hdr->nlmsg_len;
-    while (RTA_OK(rta, len)) {
-        if (rta->rta_type == IFLA_STATS64) {
-            stats64 = RTA_DATA(rta);
-            rx_bytes = stats64->rx_bytes;
-            break;
-        }
+	recv_hdr = (struct nlmsghdr *) buf;
+	infomsg = NLMSG_DATA(recv_hdr);
+	rta = IFLA_RTA(infomsg);
 
-        rta = RTA_NEXT(rta, len);
-    }
+	len = recv_hdr->nlmsg_len;
+	while (RTA_OK(rta, len)) {
+		if (rta->rta_type == IFLA_STATS64) {
+			stats64 = RTA_DATA(rta);
+			rx_bytes = stats64->rx_bytes;
+			break;
+		}
+
+		rta = RTA_NEXT(rta, len);
+	}
 
 	free(buf);
-    close(sock);
+	close(sock);
 
-    return rx_bytes;
+	return rx_bytes;
 }
 
 
@@ -707,10 +760,8 @@ char *
 unitconv(char *retmsg, size_t len, uint64_t bps)
 {
     int ndigits = 0;
-    if (bps == 0) {
-        snprintf(retmsg, len, "");
-        return retmsg;
-    }
+    if (bps == 0)
+        return UNKNOWN;
 
     ndigits = log10(bps);
     if (ndigits - 3 < 0)

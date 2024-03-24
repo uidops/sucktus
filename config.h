@@ -3,6 +3,7 @@
 
 #include <pulse/mainloop.h>
 #include <X11/Xlib.h>
+#include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
 #include <stdio.h>
 
@@ -17,14 +18,21 @@
 #define SND_CARD "Master"
 #define SND_INDEX 0
 #define MEMINFO "/proc/meminfo"
-#define TEMP "/sys/class/thermal/thermal_zone1/temp"
+#define TEMP "/sys/class/thermal/thermal_zone2/temp"
 #define STAT "/proc/stat"
-#define BLZDEV "/org/bluez/hci0/dev_00_00_00_00_00_00"
+#define BLZDEV "/org/bluez/hci0/dev_41_42_08_E1_8D_60"
 #define TM "wlp3s0"
 
-static char *IW[] = {"wlp2s0", NULL};
-static char *ET[] = {"enp1s0", "enp0s20f0u3", NULL};
+#define GENLMSG_DATA(gh) ((void *)(NLMSG_DATA(gh) + GENL_HDRLEN))
+#define NLA_DATA(na) ((void *)((char*)(na) + NLA_HDRLEN))
+
+#define BUFLEN (1 << 12)
+
+
+static char *IW[] = {"wlp2s0", "wlp3s0", "wlp0s20f0u3", "wlan0", NULL};
+static char *ET[] = {"enp1s0", "enp0s20f0u2", NULL};
 static char *VI[] = {"tun0", "proton0", NULL};
+
 
 struct meminfo {
     long long int memtotal;
@@ -44,6 +52,13 @@ struct raw_netlink_route_metadata {
     struct ifinfomsg ifmsg;
     struct rtattr rta;
 };
+
+struct raw_netlink_generic_metadata {
+	struct nlmsghdr nlmh;
+	struct genlmsghdr genlmh;
+	unsigned char attrs[256];
+};
+
 
 static int done = 1;
 static pa_mainloop *mainloop = NULL;
