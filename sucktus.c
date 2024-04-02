@@ -1,3 +1,4 @@
+#include <X11/X.h>
 #include <dbus/dbus.h>
 #include <pulse/pulseaudio.h>
 #include <net/if.h>
@@ -10,6 +11,7 @@
 #include <X11/XKBlib.h>
 #include <stdio.h>
 #include <X11/extensions/XKBrules.h>
+#include <ctype.h>
 #include <err.h>
 #include <fcntl.h>
 #include <math.h>
@@ -323,16 +325,14 @@ layout(char *text, size_t len, Display *dpy)
 	if (text == NULL || (len == 0 || dpy == NULL))
 		return UNKNOWN;
 
-	XkbStateRec state;
-	XkbGetState(dpy, XkbUseCoreKbd, &state);
+	XkbStateRec state = {0};
+	XkbRF_VarDefsRec vd = {0};
 
-	XkbDescPtr desc = XkbGetKeyboard(dpy, XkbAllComponentsMask, XkbUseCoreKbd);
-	if (desc == NULL) {
-		warn("XkbGetKeyboard()");
+	if (XkbGetState(dpy, XkbUseCoreKbd, &state)) {
+		warn("XkbGetState()");
 		return UNKNOWN;
 	}
 
-	XkbRF_VarDefsRec vd;
 	XkbRF_GetNamesProp(dpy, NULL, &vd);
 
 	char *layout = strtok(vd.layout, ",");
@@ -342,8 +342,13 @@ layout(char *text, size_t len, Display *dpy)
 			return UNKNOWN;
 	}
 
+	if (state.locked_mods & LockMask)
+		for (size_t i = 0; i < strlen(layout); i++)
+			if (islower(layout[i])) {
+				layout[i] = layout[i] - 0x20;
+			}
+
 	snprintf(text, len, "K %s | ", layout);
-	XkbFreeKeyboard(desc, XkbAllComponentsMask, 1);
 
 	return text;
 }
