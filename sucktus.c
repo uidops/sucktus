@@ -215,15 +215,20 @@ bluez_battery(char *text, size_t len)
 	dbus_message_append_args(msg, DBUS_TYPE_STRING, &device, DBUS_TYPE_STRING, &perc, DBUS_TYPE_INVALID);
 	if (!dbus_connection_send_with_reply(con, msg, &pending, -1)) {
 		warnx("dbus_connection_send_with_reply(): failed");
+		dbus_message_unref(msg);
+		dbus_connection_unref(con);
 		return UNKNOWN;
 	}
 
 	dbus_connection_flush(con);
 	dbus_pending_call_block(pending);
+	dbus_message_unref(msg);
 
 	msg = dbus_pending_call_steal_reply(pending);
-	if (!msg)
+	if (!msg) {
+		dbus_connection_unref(con);
 		errx(EXIT_FAILURE, "dbus_pending_call_steal_reply(): failed");
+	}
 
 	if (dbus_message_iter_init(msg, &args) && dbus_message_iter_get_arg_type(&args) == DBUS_TYPE_VARIANT) {
 		dbus_message_iter_recurse(&args, &var);
@@ -571,13 +576,6 @@ wifi(char *text, size_t len)
 		return UNKNOWN;
 	}
 
-	if (buf == NULL) {
-		warn("calloc()");
-		free(buf);
-		close(fd);
-		return UNKNOWN;
-	}
-
 	while (recv(fd, buf, BUFLEN, 0) > 0) {
 		nlmh = (struct nlmsghdr *) buf;
 		nla = GENLMSG_DATA(nlmh);
@@ -647,6 +645,7 @@ ethernet(char *text, size_t len)
 	buf = calloc(BUFLEN, sizeof(uint8_t));
 	if (buf == NULL) {
 		warn("calloc()");
+		close(fd);
 		return UNKNOWN;
 	}
 
