@@ -527,6 +527,7 @@ wifi(char *text, size_t len)
     int fd = 0;
     uint8_t *buf = NULL;
     uint32_t family_id = 0;
+	size_t length = 0;
 	char *ssid = NULL;
     struct sockaddr_nl sa = {0};
     struct raw_netlink_generic_metadata req = {0};
@@ -611,15 +612,19 @@ wifi(char *text, size_t len)
 		nlmh = (struct nlmsghdr *) buf;
 		nla = GENLMSG_DATA(nlmh);
 		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
-			if (nla->nla_type == NL80211_ATTR_SSID)
+			if (nla->nla_type == NL80211_ATTR_SSID) {
+				length = nla->nla_len - NLA_HDRLEN;
 				ssid = NLA_DATA(nla);
+			}
 
 			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
 		}
 	}
 
-	if (ssid != NULL)
+	if (ssid != NULL) {
+		ssid[length] = 0;
 		snprintf(text, len, "W %s | ", ssid);
+	}
 
 	else
 		text = UNKNOWN;
