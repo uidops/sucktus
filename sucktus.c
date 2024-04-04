@@ -108,18 +108,18 @@ date(char *text, size_t len)
 
 	time_t clock = time(NULL);
 	if (clock == (time_t)-1) {
-		warn("time()");
+		warn("date: time()");
 		return UNKNOWN;
 	}
 
 	struct tm *tm = localtime(&clock);
 	if (tm == NULL) {
-		warn("localtime()");
+		warn("date: localtime()");
 		return UNKNOWN;
 	}
 
 	if (!strftime(text, len, "T %I:%M %p", tm)) {
-		warn("strftime()");
+		warn("date: strftime()");
 		return UNKNOWN;
 	}
 
@@ -135,16 +135,16 @@ battery(char *text, size_t len)
 
 	int fd = open(BAT"/capacity", O_RDONLY);
 	if (fd == -1) {
-		warn("open(%s)", BAT"/capacity");
+		warn("battery: open(%s)", BAT"/capacity");
 		return UNKNOWN;
 	}
 
 	char capacity[4];
 	ssize_t d = read(fd, capacity, 3);
 	if (d == -1) {
-		warn("read(%s)", BAT"/capacity");
+		warn("battery: read(%s)", BAT"/capacity");
 		if (close(fd) == -1)
-			warn("close(%s)", BAT"/capacity");
+			warn("battery: close(%s)", BAT"/capacity");
 
 		return UNKNOWN;
 	}
@@ -152,7 +152,7 @@ battery(char *text, size_t len)
 	*(capacity+d + ((*(capacity+d-1) == '\n') ? -1 : 0)) = 0;
 
 	if (close(fd) == -1)
-		warn("close(%s)", BAT"/capacity");
+		warn("battery: close(%s)", BAT"/capacity");
 
 	snprintf(text, len, "%s %s | ", battery_status(), atoi(capacity) < 100 ? capacity : "Full");
 
@@ -165,23 +165,23 @@ battery_status(void)
 {
 	int fd = open(BAT"/status", O_RDONLY);
 	if (fd == -1) {
-		warn("open(%s)", BAT"/status");
+		warn("battery_status: open(%s)", BAT"/status");
 		return UNKNOWN;
 	}
 
 	char status[16];
 	ssize_t d = read(fd, status, sizeof(status)/sizeof(*status));
 	if (d == -1) {
-		warn("read(%s)", BAT"/status");
+		warn("battery_status: read(%s)", BAT"/status");
 		if (close(fd) == -1)
-			warn("close(%s)", BAT"/status");
+			warn("battery_status: close(%s)", BAT"/status");
 
 		return UNKNOWN;
 	}
 
 	*(status+d + ((*(status+d-1) == '\n') ? -1 : 0)) = 0;
 	if (close(fd) == -1)
-		warn("close(%s)", BAT"/status");
+		warn("battery_status: close(%s)", BAT"/status");
 
 	if (!strncmp(status, "Full", 4))
 		return "B";
@@ -210,14 +210,14 @@ bluez_battery(char *text, size_t len)
 	dbus_error_init(&error);
 	con = dbus_bus_get(DBUS_BUS_SYSTEM, &error);
 	if (dbus_error_is_set(&error)) {
-		warnx("dbus_bus_get(): %s", error.message);
+		warnx("bluez_battery: dbus_bus_get(): %s", error.message);
 		return UNKNOWN;
 	}
 
 	msg = dbus_message_new_method_call("org.bluez", BLZDEV, "org.freedesktop.DBus.Properties", "Get");
 	dbus_message_append_args(msg, DBUS_TYPE_STRING, &device, DBUS_TYPE_STRING, &perc, DBUS_TYPE_INVALID);
 	if (!dbus_connection_send_with_reply(con, msg, &pending, -1)) {
-		warnx("dbus_connection_send_with_reply(): failed");
+		warnx("bluez_battery: dbus_connection_send_with_reply(): failed");
 		dbus_message_unref(msg);
 		dbus_connection_unref(con);
 		return UNKNOWN;
@@ -230,7 +230,8 @@ bluez_battery(char *text, size_t len)
 	msg = dbus_pending_call_steal_reply(pending);
 	if (!msg) {
 		dbus_connection_unref(con);
-		errx(EXIT_FAILURE, "dbus_pending_call_steal_reply(): failed");
+		warnx("bluez_battery: dbus_pending_call_steal_reply(): failed");
+		return UNKNOWN;
 	}
 
 	if (dbus_message_iter_init(msg, &args) && dbus_message_iter_get_arg_type(&args) == DBUS_TYPE_VARIANT) {
@@ -301,7 +302,7 @@ volume(char *text, size_t len)
 
 	pa_context_set_state_callback(context, _context_state_callback, NULL);
 	if (pa_context_connect(context, NULL, PA_CONTEXT_NOFLAGS, NULL) < 0) {
-		warnx("pa_context_connect(): failed");
+		warnx("volume: pa_context_connect(): failed");
 		return UNKNOWN;
 	}
 
@@ -330,11 +331,14 @@ layout(char *text, size_t len, Display *dpy)
 	XkbRF_VarDefsRec vd = {0};
 
 	if (XkbGetState(dpy, XkbUseCoreKbd, &state)) {
-		warn("XkbGetState()");
+		warn("layout: XbGetState()");
 		return UNKNOWN;
 	}
 
-	XkbRF_GetNamesProp(dpy, NULL, &vd);
+	if (!XkbRF_GetNamesProp(dpy, NULL, &vd)) {
+		warn("layout: XkbRF_GetNamesProp()");
+		return UNKNOWN;
+	}
 
 	char *layout = strtok(vd.layout, ",");
 	for (int i = 0; i < state.group; i++) {
@@ -363,7 +367,7 @@ read_meminfo(struct meminfo *mem)
 
 	FILE *fp = fopen(MEMINFO, "r");
 	if (fp == NULL) {
-		warn("fopen(%s)", MEMINFO);
+		warn("read_meminfo: fopen(%s)", MEMINFO);
 		return 0;
 	}
 
@@ -387,7 +391,7 @@ read_meminfo(struct meminfo *mem)
 	}
 
 	if (fclose(fp) == EOF)
-		warn("fclose()");
+		warn("read_meminfo: fclose()");
 
 	return 1;
 }
@@ -565,7 +569,7 @@ cpu_prec(char *text, size_t len)
 
 	FILE *stream = fopen(STAT, "r");
 	if (stream == NULL) {
-		warn("fopen(%s)", STAT);
+		warn("cpu_prec: fopen(%s)", STAT);
 		return UNKNOWN;
 	}
 
@@ -574,7 +578,7 @@ cpu_prec(char *text, size_t len)
 	static struct cpu b = {0, 0};
 
 	if (fgets(cpu, 256, stream) == NULL) {
-		warn("fgets(%s)", STAT);
+		warn("cpu_prec: fgets(%s)", STAT);
 		fclose(stream);
 		return UNKNOWN;
 	}
@@ -583,7 +587,7 @@ cpu_prec(char *text, size_t len)
 	strncpy(cpu, cpu+5, strlen(cpu)-5);
 	char *tok = strdup(cpu);
 	if (tok == NULL) {
-		warn("strdup()");
+		warn("cpu_prec: strdup()");
 		fclose(stream);
 		return UNKNOWN;
 	}
@@ -636,7 +640,7 @@ wifi(char *text, size_t len)
 
 	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
 	if (fd == -1) {
-		warn("socket()");
+		warn("wifi: socket()");
 		return UNKNOWN;
 	}
 
@@ -646,7 +650,7 @@ wifi(char *text, size_t len)
 	sa.nl_pid = getpid();
 
 	if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
-		warn("bind()");
+		warn("wifi: bind()");
 		close(fd);
 		return UNKNOWN;
 	}
@@ -668,16 +672,15 @@ wifi(char *text, size_t len)
 
 	req.nlmh.nlmsg_len += NLMSG_ALIGN(nla->nla_len);
 
-	buf = calloc(BUFLEN, sizeof(uint8_t));
-	if (buf == NULL) {
-		warn("calloc()");
+	if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
+		warn("wifi: send(CTRL_CMD_GETFAMILY)");
 		close(fd);
 		return UNKNOWN;
 	}
 
-	if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
-		warn("send()");
-		free(buf);
+	buf = calloc(BUFLEN, sizeof(uint8_t));
+	if (buf == NULL) {
+		warn("wifi: calloc()");
 		close(fd);
 		return UNKNOWN;
 	}
@@ -686,8 +689,10 @@ wifi(char *text, size_t len)
 		nlmh = (struct nlmsghdr *) buf;
 		nla = GENLMSG_DATA(nlmh);
 		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
-			if (nla->nla_type == CTRL_ATTR_FAMILY_ID)
+			if (nla->nla_type == CTRL_ATTR_FAMILY_ID) {
 				family_id = *((uint32_t *) NLA_DATA(nla));
+				break;
+			}
 
 			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
 		}
@@ -702,7 +707,7 @@ wifi(char *text, size_t len)
 	req.genlmh.version = 0;
 
 	if (send(fd, (void *)&req, req.nlmh.nlmsg_len, 0) == -1) {
-		warn("send()");
+		warn("wifi: send(NL80211_CMD_GET_INTERFACE)");
 		free(buf);
 		close(fd);
 		return UNKNOWN;
@@ -715,6 +720,7 @@ wifi(char *text, size_t len)
 			if (nla->nla_type == NL80211_ATTR_SSID) {
 				length = nla->nla_len - NLA_HDRLEN;
 				ssid = NLA_DATA(nla);
+				break;
 			}
 
 			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
@@ -748,13 +754,13 @@ ethernet(char *text, size_t len)
 
 	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
 	if (fd == -1) {
-		warn("socket()");
+		warn("ethernet: socket()");
 		return UNKNOWN;
 	}
 
 	buf = calloc(BUFLEN, sizeof(uint8_t));
 	if (buf == NULL) {
-		warn("calloc()");
+		warn("ethernet: calloc()");
 		close(fd);
 		return UNKNOWN;
 	}
@@ -766,7 +772,7 @@ ethernet(char *text, size_t len)
 		sa.nl_pid = getpid();
 
 		if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
-			warn("bind()");
+			warn("ethernet: bind()");
 			continue;
 		}
 
@@ -786,7 +792,7 @@ ethernet(char *text, size_t len)
 		req.ifmh.ifi_change = 0xffffffff;
 
 		if (send(fd, &req, req.nlmh.nlmsg_len, 0) == -1) {
-			warn("send()");
+			warn("ethernet: send(RTM_GETLINK)");
 			continue;
 		}
 
@@ -825,7 +831,7 @@ openvpn(char *text, size_t len)
 
 	struct if_nameindex *if_ni = if_nameindex();
 	if (if_ni == NULL) {
-		warn("if_nameindex()");
+		warn("openvpn: if_nameindex()");
 		return UNKNOWN;
 	}
 
@@ -857,7 +863,7 @@ get_rx_bytes(void)
 
 	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
 	if (fd == -1) {
-		warn("socket()");
+		warn("get_rx_bytes: socket()");
 		return 0;
 	}
 
@@ -868,7 +874,7 @@ get_rx_bytes(void)
 
 	rc = bind(fd, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
 	if (rc == -1) {
-		warn("bind()");
+		warn("get_rx_bytes: bind()");
 		close(fd);
 		return 0;
 	}
@@ -883,7 +889,7 @@ get_rx_bytes(void)
 	req.ifmh.ifi_type = 0;
 	req.ifmh.ifi_index = if_nametoindex(TM);
 	if (req.ifmh.ifi_index == 0) {
-		warn("if_nametoindex(%s)", TM);
+		warn("get_rx_bytes: if_nametoindex(%s)", TM);
 		close(fd);
 		return 0;
 	}
@@ -899,14 +905,14 @@ get_rx_bytes(void)
 
 	rc = send(fd, &req, sizeof(struct raw_netlink_route_metadata), 0);
 	if (rc == -1) {
-		warn("send()");
+		warn("get_rx_bytes: send(RTM_GETLINK)");
 		close(fd);
 		return 0;
 	}
 
 	buf = calloc(BUFLEN, sizeof(uint8_t));
 	if (buf == NULL) {
-		warn("calloc()");
+		warn("get_rx_bytes: calloc()");
 		close(fd);
 		return 0;
 	}
