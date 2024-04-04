@@ -6,6 +6,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/nl80211.h>
 #include <linux/wireless.h>
+#include <linux/thermal.h>
 #include <sys/socket.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
@@ -143,7 +144,7 @@ battery(char *text, size_t len)
 	if (d == -1) {
 		warn("read(%s)", BAT"/capacity");
 		if (close(fd) == -1)
-			warn("close(%s)", TEMP);
+			warn("close(%s)", BAT"/capacity");
 
 		return UNKNOWN;
 	}
@@ -151,7 +152,7 @@ battery(char *text, size_t len)
 	*(capacity+d + ((*(capacity+d-1) == '\n') ? -1 : 0)) = 0;
 
 	if (close(fd) == -1)
-		warn("close(%s)", TEMP);
+		warn("close(%s)", BAT"/capacity");
 
 	snprintf(text, len, "%s %s | ", battery_status(), atoi(capacity) < 100 ? capacity : "Full");
 
@@ -173,14 +174,14 @@ battery_status(void)
 	if (d == -1) {
 		warn("read(%s)", BAT"/status");
 		if (close(fd) == -1)
-			warn("close(%s)", TEMP);
+			warn("close(%s)", BAT"/status");
 
 		return UNKNOWN;
 	}
 
 	*(status+d + ((*(status+d-1) == '\n') ? -1 : 0)) = 0;
 	if (close(fd) == -1)
-		warn("close(%s)", TEMP);
+		warn("close(%s)", BAT"/status");
 
 	if (!strncmp(status, "Full", 4))
 		return "B";
@@ -432,27 +433,126 @@ temp(char *text, size_t len)
 	if (text == NULL || len == 0)
 		return UNKNOWN;
 
-	int fd = open(TEMP, O_RDONLY);
+	int fd = 0;
+	uint8_t *buf = NULL;
+	struct sockaddr_nl sa = {0};
+	struct raw_netlink_generic_metadata req = {0};
+	struct nlattr *nla = NULL;
+	struct nlmsghdr *nlmh = NULL;
+	uint32_t family_id = 0;
+	uint32_t thermal_id = THERMAL_ID;
+	uint32_t temp = 0;
+
+	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_GENERIC);
 	if (fd == -1) {
-		warn("open(%s)", TEMP);
+		warn("temp: socket()");
 		return UNKNOWN;
 	}
 
-	char value[3];
-	ssize_t d = read(fd, value, 3);
-	if (d == -1) {
-		if (close(fd) == -1)
-			warn("close(%s)", TEMP);
+	sa.nl_family = AF_NETLINK;
+	sa.nl_pad = 0;
+	sa.nl_pid = getpid();
+	sa.nl_groups = 0;
 
-		warn("read(%s)", TEMP);
+	if (bind(fd, (struct sockaddr *) &sa, sizeof(struct sockaddr_nl)) == -1) {
+		warn("temp: bind()");
+		close(fd);
 		return UNKNOWN;
 	}
 
-	*(value+d-1) = 0;
-	if (close(fd) == -1)
-		warn("close(%s)", TEMP);
+	req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+	req.nlmh.nlmsg_type = GENL_ID_CTRL;
+	req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.nlmh.nlmsg_seq = 1;
+	req.nlmh.nlmsg_pid = getpid();
 
-	snprintf(text, len, "T %s | ", value);
+	req.genlmh.cmd = CTRL_CMD_GETFAMILY;
+	req.genlmh.version = 2;
+	req.genlmh.reserved = 0;
+
+	nla = (struct nlattr *) GENLMSG_DATA(&req);
+	nla->nla_len = strlen(THERMAL_GENL_FAMILY_NAME) + NLA_HDRLEN + 1;
+	nla->nla_type = CTRL_ATTR_FAMILY_NAME;
+	strcpy(NLA_DATA(nla), THERMAL_GENL_FAMILY_NAME);
+
+	req.nlmh.nlmsg_len += NLA_ALIGN(nla->nla_len);
+
+	if (send(fd, (void *) &req, req.nlmh.nlmsg_len, 0) == -1) {
+		warn("temp: send(CTRL_CMD_GETFAMILY)");
+		close(fd);
+		return UNKNOWN;
+	}
+
+	buf = calloc(BUFLEN, sizeof(uint8_t));
+	if (buf == NULL) {
+		warn("temp: calloc()");
+		close(fd);
+		return UNKNOWN;
+	}
+
+	while (recv(fd, buf, BUFLEN, 0) > 0) {
+		nlmh = (struct nlmsghdr *) buf;
+		nla = GENLMSG_DATA(nlmh);
+		if (nlmh->nlmsg_type == NLMSG_ERROR && family_id == 0) {
+			warnx("temp: thermal netlink is not implemented");
+			free(buf);
+			close(fd);
+			return UNKNOWN;
+		}
+
+		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+			if (nla->nla_type == CTRL_ATTR_FAMILY_ID) {
+				family_id = *((uint32_t *) NLA_DATA(nla));
+				break;
+			}
+
+			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+		}
+	}
+
+	req.nlmh.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+	req.nlmh.nlmsg_type = family_id;
+	req.nlmh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.nlmh.nlmsg_seq = 2;
+
+	req.genlmh.cmd = THERMAL_GENL_CMD_TZ_GET_TEMP;
+	req.genlmh.version = THERMAL_GENL_VERSION;
+
+	nla = (struct nlattr *) GENLMSG_DATA(&req);
+	nla->nla_len = sizeof(uint32_t) + NLA_HDRLEN;
+	nla->nla_type = THERMAL_GENL_ATTR_TZ_ID;
+	memcpy(NLA_DATA(nla), &thermal_id, sizeof(uint32_t));
+
+	req.nlmh.nlmsg_len += NLA_ALIGN(nla->nla_len);
+
+	if (send(fd, (void *) &req, req.nlmh.nlmsg_len, 0) == -1) {
+		free(buf);
+		close(fd);
+		warn("temp: send(THERMAL_GENL_CMD_TZ_GET_TEMP)");
+		return UNKNOWN;
+	}
+
+	while (recv(fd, buf, BUFLEN, 0) > 0) {
+		nlmh = (struct nlmsghdr *) buf;
+		nla = GENLMSG_DATA(nlmh);
+		while ((int64_t)((char *) nla - (char *) nlmh) < nlmh->nlmsg_len - NLA_HDRLEN) {
+			if (nla->nla_type == THERMAL_GENL_ATTR_TZ_TEMP) {
+				temp = *((uint32_t *) NLA_DATA(nla));
+				break;
+			}
+
+			nla = (struct nlattr *) ((char *) nla + NLA_ALIGN(nla->nla_len));
+		}
+	}
+
+	free(buf);
+	close(fd);
+
+	if (temp == 0)
+		text = UNKNOWN;
+	else
+		snprintf(text, len, "T %u | ", temp / 1000);
+
 	return text;
 }
 

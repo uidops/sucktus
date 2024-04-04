@@ -18,7 +18,7 @@
 #define SND_CARD "Master"
 #define SND_INDEX 0
 #define MEMINFO "/proc/meminfo"
-#define TEMP "/sys/class/thermal/thermal_zone2/temp"
+#define THERMAL_ID 1
 #define STAT "/proc/stat"
 #define BLZDEV "/org/bluez/hci0/dev_41_42_08_E1_8D_60"
 #define TM "wlp3s0"
