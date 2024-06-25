@@ -66,10 +66,10 @@ main(int argc, char **argv)
 
 	struct timespec timeout = {INTERVAL/1000, (INTERVAL%1000)*1E6};
 
-	uint64_t rx_bytes = get_rx_bytes();
+	uint64_t bytes = get_bytes();
 	while (done) {
 		snprintf(text, 256, "〱 %s%s%s%s%s%s%s%s%s%s%s%s  %s",
-				unitconv(tmonitor_text, sizeof(tmonitor_text), (get_rx_bytes() - rx_bytes) / (float) INTERVAL * 1000.0),
+				unitconv(tmonitor_text, sizeof(tmonitor_text), (get_bytes() - bytes) / (float) INTERVAL * 1000.0),
 				openvpn(openvpn_text, sizeof(ethernet_text)), ethernet(ethernet_text, sizeof(ethernet_text)),
 				wifi(wifi_text, sizeof(wifi_text)),
 				cpu_prec(cpu_prec_text, 12), temp(temp_text, sizeof(temp_text)),
@@ -80,7 +80,7 @@ main(int argc, char **argv)
 		XStoreName(dpy, DefaultRootWindow(dpy), text);
 		XSync(dpy, 0);
 
-		rx_bytes = get_rx_bytes();
+		bytes = get_bytes();
 		nanosleep(&timeout, NULL);
 	}
 
@@ -849,11 +849,11 @@ openvpn(char *text, size_t len)
 
 
 uint64_t
-get_rx_bytes(void)
+get_bytes(void)
 {
 	int fd = 0, rc = 0, len = 0;
 	uint8_t *buf = NULL;
-	uint64_t rx_bytes = 0;
+	uint64_t bytes = 0;
 	struct sockaddr_nl recv_addr = {0};
 	struct raw_netlink_route_metadata req = {0};
 	struct nlmsghdr *recv_hdr = NULL;
@@ -863,7 +863,7 @@ get_rx_bytes(void)
 
 	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
 	if (fd == -1) {
-		warn("get_rx_bytes: socket()");
+		warn("get_bytes: socket()");
 		return 0;
 	}
 
@@ -874,7 +874,7 @@ get_rx_bytes(void)
 
 	rc = bind(fd, (struct sockaddr *) &recv_addr, sizeof(struct sockaddr_nl));
 	if (rc == -1) {
-		warn("get_rx_bytes: bind()");
+		warn("get_bytes: bind()");
 		close(fd);
 		return 0;
 	}
@@ -889,7 +889,7 @@ get_rx_bytes(void)
 	req.ifmh.ifi_type = 0;
 	req.ifmh.ifi_index = if_nametoindex(TM);
 	if (req.ifmh.ifi_index == 0) {
-		warn("get_rx_bytes: if_nametoindex(%s)", TM);
+		warn("get_bytes: if_nametoindex(%s)", TM);
 		close(fd);
 		return 0;
 	}
@@ -905,14 +905,14 @@ get_rx_bytes(void)
 
 	rc = send(fd, &req, sizeof(struct raw_netlink_route_metadata), 0);
 	if (rc == -1) {
-		warn("get_rx_bytes: send(RTM_GETLINK)");
+		warn("get_bytes: send(RTM_GETLINK)");
 		close(fd);
 		return 0;
 	}
 
 	buf = calloc(BUFLEN, sizeof(uint8_t));
 	if (buf == NULL) {
-		warn("get_rx_bytes: calloc()");
+		warn("get_bytes: calloc()");
 		close(fd);
 		return 0;
 	}
@@ -926,9 +926,10 @@ get_rx_bytes(void)
 		while (RTA_OK(rta, len)) {
 			if (rta->rta_type == IFLA_STATS64) {
 				stats64 = RTA_DATA(rta);
-				rx_bytes = stats64->rx_bytes;
+				bytes = stats64->rx_bytes + stats64->tx_bytes;
 				break;
 			}
+
 
 			rta = RTA_NEXT(rta, len);
 		}
@@ -937,7 +938,7 @@ get_rx_bytes(void)
 	free(buf);
 	close(fd);
 
-	return rx_bytes;
+	return bytes;
 }
 
 

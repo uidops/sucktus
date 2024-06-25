@@ -18,7 +18,7 @@
 #define SND_CARD "Master"
 #define SND_INDEX 0
 #define MEMINFO "/proc/meminfo"
-#define THERMAL_ID 1
+#define THERMAL_ID 3
 #define STAT "/proc/stat"
 #define BLZDEV "/org/bluez/hci0/dev_41_42_08_E1_8D_60"
 #define TM "wlp3s0"
@@ -78,7 +78,7 @@ char		*wifi(char *, size_t);
 char		*ethernet(char *, size_t);
 char		*openvpn(char *, size_t);
 char		*unitconv(char *, size_t, uint64_t);
-uint64_t		 get_rx_bytes(void);
+uint64_t		 get_bytes(void);
 static void		 change_done(int);
 
 #endif
